@@ -1,0 +1,1995 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light" />
+<title>Gerenciamento Obra Casa e Ateliê</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
+  body { background: #ADB697; }
+  input, select, textarea, button { font-family: inherit; }
+  ::-webkit-scrollbar { height: 10px; width: 10px; }
+  ::-webkit-scrollbar-thumb { background: #8E9C7C; border-radius: 5px; }
+  @media (max-width: 640px) {
+    .obra-nav-label { display: none; }
+    .obra-sidebar { width: 60px !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+const COLORS = {
+  paper: "#ADB697",
+  surface: "#FFFFFF",
+  ink: "#2B2B22",
+  inkMuted: "#5C5C46",
+  primary: "#7D9B76",
+  primaryDark: "#4F6B4A",
+  primaryLight: "#B9CBB2",
+  kiln: "#A24B2F",
+  moss: "#4B7856",
+  amber: "#B8862E",
+  danger: "#B23B2E",
+  border: "#8E9C7C",
+  dotted: "#ABAB9C",
+};
+
+const FONT_SERIF = "Georgia, 'Iowan Old Style', 'Palatino Linotype', serif";
+const FONT_SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+const FONT_MONO = "'SF Mono', 'IBM Plex Mono', Menlo, Consolas, monospace";
+
+const STATUS_OPTIONS = ["Não iniciado", "Em andamento", "Concluído", "Atrasado"];
+const PRIORITY_OPTIONS = ["Baixa", "Média", "Alta"];
+const REVISION_STATUS_OPTIONS = ["A discutir", "Pronta para enviar", "Enviada à arquiteta", "Aprovada", "Rejeitada"];
+const TASK_STATUS_OPTIONS = ["Aguardando programação", "A fazer", "Em andamento"];
+const RESPONSAVEL_OPTIONS = ["Pâmela", "Laisa", "Ambas", "Outro"];
+const FILTER_RESPONSAVEL_OPTIONS = ["Todos", ...RESPONSAVEL_OPTIONS];
+const DEFAULT_UNIT_OPTIONS = ["und", "unid", "un", "m", "m²", "m³", "kg", "vb", "pct", "ml", "cx", "rolo", "conj", "pç", "vg", "sc", "kit"];
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function toNumber(v) {
+  if (v === "" || v === null || v === undefined) return 0;
+  if (typeof v === "number") return v;
+  const n = Number(String(v).replace(",", "."));
+  return isNaN(n) ? 0 : n;
+}
+
+const DEFAULT_REVISIONS = [];
+
+function mkOrc() { return { valor: "", fornecedor: "", contato: "", pagamento: "" }; }
+function mkItems(rows) {
+  return rows.map(([desc, espec, unidade, quantidade, obs, pm, pmo]) => ({
+    id: uid(),
+    desc, espec: espec || "", unidade: unidade || "",
+    quantidade: quantidade === undefined || quantidade === null ? "" : quantidade,
+    obs: obs || "",
+    precoUnitMaterial: pm === undefined || pm === null ? "" : pm,
+    precoUnitMO: pmo === undefined || pmo === null ? "" : pmo,
+    realizado: "", orc1: mkOrc(), orc2: mkOrc(), orc3: mkOrc(),
+  }));
+}
+function mkSub(nome, rows) { return { id: uid(), nome, itens: mkItems(rows) }; }
+function mkCat(nome, subs) { return { id: uid(), nome, subcategorias: subs }; }
+
+const DEFAULT_QUANTITATIVOS = {
+  atelie: {
+    label: "Ateliê",
+    reservaPct: 20,
+    categorias: [
+      mkCat("Serviços Preliminares e Canteiro de Obras", [
+        mkSub("Canteiro de Obras", [
+          ["Aluguel de caçamba", "", "vb"],
+          ["Instalação elétrica provisória", "", ""],
+          ["Montagem do canteiro de obras", "", ""],
+          ["Água (consumo de obra)", "", "vb"],
+          ["Energia (consumo de obra)", "", "vb"],
+        ]),
+      ]),
+      mkCat("Infraestrutura Civil", [
+        mkSub("Fundação e Impermeabilização", [
+          ["Brita", "", "", "", "Projeto estrutural ainda pendente — quantidades a confirmar"],
+          ["Areia", "", ""],
+          ["Cimento", "", ""],
+          ["Aço", "", ""],
+          ["Formas", "", ""],
+          ["Impermeabilização", "", ""],
+        ]),
+      ]),
+      mkCat("Superestrutura", [
+        mkSub("Pilares, Vigas e Alvenaria", [
+          ["Lajotas cerâmicas 11,5x19x29cm", "200 m² de parede", "und", 3400, "", 2.5, ""],
+          ["Areia média peneirada", "considerado só a parede", "m³", 15, "", 180, ""],
+          ["Cimento Portland Comum CPII-F", "considerado só a parede", "und", 75, "", 35, ""],
+          ["Aço", "", ""],
+          ["Formas", "", ""],
+          ["Arames", "", ""],
+          ["Argamassa", "", ""],
+        ]),
+        mkSub("Cobertura", [
+          ["Estrutura em madeira do telhado", "tesouras, caibros, ripas", "", "", "Não detalhado no projeto arquitetônico — pendente"],
+          ["Telha cerâmica Tettolit, 2 faces, cor grafite", "128 m² de telhado + 12 m² de perda; 1 m² = 7,8 telhas", "unid", 1092, "", 10.5, ""],
+          ["Telha cerâmica Tettolit, 1 face, cor grafite", "mesma área; 1 m² = 9,1 telhas", "unid", 1274, "", 5.6, ""],
+          ["Calhas", "", ""],
+          ["Área de telhado (revisão manuscrita)", "", "m²", 166.4, "Anotação manuscrita no projeto revisado (prancha P33) — confirmar se já contempla os 128m² + perda usados acima"],
+        ]),
+      ]),
+      mkCat("Arquitetura e Acabamentos", [
+        mkSub("Esquadrias", [
+          ["Báscula 120x40cm (B5)", "sala de esmaltação, fornos e depósito", "unit", 3],
+          ["Janela de correr vidro liso JE221 140x100cm", "sala de esmaltação/fornos/depósito — eucalipto tratado (Esel)", "unit", 3, "", 600, ""],
+          ["Báscula 50x50cm, vitrô maxim-ar vidro liso VE901 (B02)", "banheiro — eucalipto tratado, fecho alavanca (Esel)", "unit", 1],
+          ["Janela 140x160cm (60cm fixa embaixo)", "produção", "unit", "", "Revisão manuscrita: janela da esmaltação ampliada"],
+          ["Janela 140x100cm", "produção", "unit"],
+          ["Porta da área de produção — 240x210cm", "", "unit", "", "Possível correspondência com a porta de correr 4 folhas revisada (P06)"],
+          ["Porta da entrada — 200x210cm", "", "unit"],
+          ["Tampo de madeira para balcão — 200x50cm", "", "unit", "", "Balcão incluído por revisão manuscrita"],
+          ["Porta de giro madeira 80x210cm (P1)", "internas — alizar, marco, fechadura e dobradiça: 2 un. cada", "unit", 2, "", 600, ""],
+          ["Porta de giro madeira 60x210cm (P7)", "banheiro social — alizar, marco, fechadura e dobradiça: 1 un. cada", "unit", 1],
+          ["Porta de entrada (P5)", "", "unit"],
+          ["Espuma expansiva", "materiais para instalação das portas", "und"],
+          ["Porta de alumínio palheta 210x80, esquerda, branco (P7)", "entrada de cargas", "unit", 1, "", 800, 0],
+          ["Porta do deck (P6)", "", "unit", 1, "Revisão manuscrita pede porta de correr 4 folhas (1 fixa) 240x210cm — confirmar se este valor já reflete a revisão", 5000, 0],
+          ["Box do banheiro", "esquadria de alumínio", "unit", 1, "", 1000, ""],
+        ]),
+        mkSub("Revestimentos", [
+          ["Piso — cimento queimado", "", "", "", "Revisão manuscrita: todo o piso do ateliê, inclusive o forno"],
+          ["Piso do banheiro", "", "und"],
+          ["Argamassa (piso)", "", "pct"],
+          ["Rejunte (piso)", "", "pct"],
+          ["Rodapé — filete de argamassa desempenada", "", "unit"],
+          ["Parede — banheiro", "", "und", "", "Revisão manuscrita: parede revestida em altura total"],
+          ["Parede — sala de esmaltação", "", "und"],
+          ["Argamassa (parede)", "", ""],
+          ["Rejunte (parede)", "", "und"],
+          ["Forro — banheiro, bloco cimentício", "", "und"],
+        ]),
+        mkSub("Marmoraria", [
+          ["Bancada para banheiro", "", ""],
+          ["Bancada para pia da cozinha/copa", "270x50cm, granito Guaíba escovado, 90cm de área molhada (cuba centralizada), rodabanca 10cm, saia 5cm", "", "", "Corresponde ao balcão novo do lavabo/copa (revisão manuscrita)"],
+          ["Bancada para sala de esmaltação", "", ""],
+          ["Soleira do banheiro", "", ""],
+          ["Filete do box", "", ""],
+          ["Nicho do box do banheiro", "", ""],
+        ]),
+        mkSub("Mobiliário", [
+          ["Marcenaria planejada — cozinha/copa", "", "", "", "Ver revisão manuscrita do balcão novo"],
+        ]),
+        mkSub("Pintura", [
+          ["Pintura — área externa / deck", "", ""],
+        ]),
+      ]),
+      mkCat("Instalações Hidrossanitárias", [
+        mkSub("Instalações Hidráulicas", [
+          ["Chuveiro ducha eletrônica Advanced 7500W 220V Lorenzetti", "banheiro", "und"],
+          ["Bacia sanitária", "banheiro", ""],
+          ["Ducha higiênica", "banheiro", ""],
+          ["Acabamento registro chuveiro", "banheiro", ""],
+          ["Registro geral", "banheiro", ""],
+          ["Torneira", "banheiro", ""],
+          ["Sifão da pia", "banheiro", ""],
+          ["Válvula de escoamento", "banheiro", ""],
+          ["Porta-grelha e grelha (box e área seca)", "banheiro", ""],
+          ["Cuba de embutir Tramontina 40 BL, aço inox acetinado 40x34cm", "banheiro", "und"],
+          ["Torneira", "cozinha/copa", "und"],
+          ["Válvula de escoamento", "cozinha/copa", "und"],
+          ["Sifão", "cozinha/copa", ""],
+          ["Purificador", "cozinha/copa", ""],
+          ["Tanques e sistema de decantação de argila/esmaltes", "sala de esmaltação", ""],
+          ["Torneiras", "sala de esmaltação", ""],
+          ["Válvulas de escoamento", "sala de esmaltação", "und"],
+          ["Sifões", "sala de esmaltação", ""],
+          ["Biodigestor, tubos PVC e conexões (esgoto)", "infraestrutura hidrossanitária geral", "", "", "Nenhum projeto hidrossanitário formal recebido — ver detalhamento completo na planilha original"],
+          ["Caixa d'água geral do ateliê, tubo soldável e conexões (água fria)", "infraestrutura hidrossanitária geral", ""],
+        ]),
+      ]),
+      mkCat("Instalações Elétricas e Eletrônicas", [
+        mkSub("Instalações Elétricas e Iluminação", [
+          ["Cabeamento elétrico geral", "", ""],
+          ["Espelhos de tomada", "área de produção", ""],
+          ["Luminárias externas", "", ""],
+          ["Instalação elétrica do purificador", "cozinha/copa", ""],
+          ["Pendentes sobre o balcão", "cozinha/copa", "", "", "Revisão manuscrita: 2 unidades"],
+          ["Luminária de parede", "cozinha/copa", ""],
+          ["Fita de LED sob a bancada", "cozinha/copa", "", "", "Revisão manuscrita"],
+          ["Trilho de iluminação", "sala de esmaltação", "", "", "Revisão manuscrita"],
+          ["Pendentes", "área externa / deck", "unid", 3, "Revisão manuscrita: trilho de spots + iluminação central sobre o deck"],
+          ["Arandelas para fachada lateral e frontal", "", "und", 8],
+          ["Eletrodutos, caixas 4x2, conexões, quadros, disjuntores, DR, DPS", "infraestrutura elétrica geral", "", "", "Ver detalhamento completo na planilha original"],
+          ["Circuito dedicado (QD específico) para o forno", "", "", "", "Revisão manuscrita: 2 saídas dedicadas"],
+          ["Sensor de presença/movimento (eletroduto)", "", "", "", "Revisão manuscrita"],
+          ["Tomada para câmera de segurança", "", "", "", "Revisão manuscrita"],
+        ]),
+        mkSub("Sistemas Especiais", [
+          ["Amplificador Frahm Slim IOT 4100", "sistema de som", "unid", 1, "", 1800, ""],
+          ["Caixas JBL C521P", "sistema de som", "unid", 4, "", 320, ""],
+          ["Fio paralelo áudio Prime 2x1,5mm", "sistema de som — rolo de 100m", "m", 1, "", 450, ""],
+          ["Central de alarme de incêndio Segurimax, 12 zonas, bateria 1.3Ah", "sistema de detecção de incêndio", "unid", 1, "", 320, ""],
+          ["Detector térmico de incêndio Segurimax 12/24V LED", "sistema de detecção de incêndio", "unid", 1, "", 80, ""],
+        ]),
+      ]),
+      mkCat("Aquisições e Serviços Finais", [
+        mkSub("Aquisições e Serviços Finais", [
+          ["Purificador (aquisição)", "", "vb"],
+          ["Placa de fachada", "", "und"],
+          ["Limpeza de obras", "", "vb", "", "", 0, ""],
+        ]),
+      ]),
+    ],
+  },
+  garagem: {
+    label: "Garagem e Depósito",
+    reservaPct: 15,
+    categorias: [
+      mkCat("Estrutura e Cobertura", [
+        mkSub("Fundação e Estrutura", [["Fundação e estrutura", "", "", "", "Projeto estrutural pendente"]]),
+        mkSub("Cobertura", [["Telhado — telha cerâmica, cor grafite, inclinação 17%", "", "", "", "Área de telhado não cotada no projeto — a calcular"]]),
+      ]),
+      mkCat("Acabamentos e Instalações", [
+        mkSub("Esquadrias", [
+          ["Porta de abrir, madeira (P01)", "80x210cm", "und", 1, "Confirmar quantidade específica da garagem com as arquitetas"],
+          ["Báscula horizontal (B06)", "madeira, vidro incolor, 100x180/52cm", "und", 1],
+        ]),
+        mkSub("Revestimentos e Acabamentos", [["Textura de fachada", "reboco desempenado irregular, pintura mineral fosca, tonalidade bege", ""]]),
+        mkSub("Instalações Elétricas", [["Pontos de tomada e iluminação", "ver legenda P32 — tomadas 127V/220V, lâmpada 24W 4000K", ""]]),
+      ]),
+      mkCat("Áreas (referência)", [
+        mkSub("Áreas (referência)", [
+          ["Garagem coberta", "3 vagas", "m²", 59.96],
+          ["Depósito", "", "m²", 10.89],
+        ]),
+      ]),
+    ],
+  },
+  casa: {
+    label: "Casa (Residência)",
+    reservaPct: 15,
+    categorias: [
+      mkCat("Estrutura", [
+        mkSub("Fundação e Estrutura", [["Fundação e estrutura", "", "", "", "Projeto estrutural pendente"]]),
+        mkSub("Cobertura", [["Telhado — telha shingle, 30%", "", "", "", "Área total não cotada — calcular a partir da planta de cobertura (P04)"]]),
+      ]),
+      mkCat("Áreas (referência)", [
+        mkSub("Áreas (referência)", [
+          ["Área de churrasco", "", "m²", 24.29],
+          ["Cozinha", "", "m²", 21.43],
+          ["Despensa", "", "m²", 5.54],
+          ["Lavabo (térreo)", "", "m²", 3.24],
+          ["Lavabo social (térreo)", "", "m²", 2.98],
+          ["Sala de estar/TV", "", "m²", 42.73],
+          ["Escritório", "", "m²", 10.85],
+          ["Corredor", "", "m²", 3.73],
+          ["Sala de música", "", "m²", 10.68],
+          ["Área de serviço", "", "m²", 13.91],
+          ["Varanda 1", "", "m²", 5.8],
+          ["Varanda 2", "", "m²", 5.63],
+          ["Quarto de visita", "", "m²", 15.57],
+          ["Banheiro social (1º pavimento)", "", "m²", 5.07],
+          ["Closet", "", "m²", 10.62],
+          ["Banheiro da suíte", "", "m²", 7.62],
+          ["Quarto da suíte", "", "m²", 14.35],
+          ["Área construída total (referência)", "térreo + 1º pavimento", "m²", 250.48, "Calculado: 377,45 m² computável do projeto − 126,96 m² do ateliê — conferir com as arquitetas"],
+        ]),
+      ]),
+      mkCat("Arquitetura e Acabamentos", [
+        mkSub("Esquadrias", [
+          ["Portas de abrir/bater, madeira (P01)", "80x210cm — 9 unidades no projeto todo", "und", 9, "Confirmar quantas ficam na casa (parte também no ateliê/garagem)"],
+          ["Porta de abrir/bater, acabamento almofadado (P01-1)", "80x210cm", "und", 1],
+          ["Portas de correr, madeira (P02)", "90x210cm", "und", 2],
+          ["Portas de correr, 2 folhas, madeira e vidro (P03)", "250x250cm", "und", 4],
+          ["Porta de correr mão-amiga, 3 folhas (P04)", "382x250cm", "und", 1],
+          ["Janelas de correr, 2 folhas (J02)", "120x100/110cm", "und", 4],
+          ["Janelas de correr (J03)", "180x100/110cm", "und", 2],
+          ["Janela de correr (J04)", "180x164/46cm, até h110 fixo", "und", 2],
+          ["Janela de correr (J05)", "180x50/150cm", "und", 1],
+          ["Janela de correr (J06)", "280x100/120cm", "und", 1],
+          ["Báscula horizontal (B01)", "50x40/170cm", "und", 1],
+          ["Báscula horizontal (B02)", "60x40/170cm", "und", 3],
+          ["Báscula vertical (B03)", "120x60/135cm, vidro fosco", "und", 2],
+          ["Báscula horizontal (B04)", "120x50/170cm", "und", 1],
+        ]),
+        mkSub("Revestimentos — Pisos", [
+          ["Porcelanato Tribeca Grey Satin 90x90", "Biancogres, esmaltado retificado", "m²", 191.93, "129,52 m² interno + 62,41 m² externo"],
+          ["Dorcia Terrazzo Beige Satin 100x100", "Biancogres, acetinado retificado", "m²", 10.8],
+          ["Piso vinílico LVT Home Trevi Vita 19x130", "Biancogres", "m²", 43.34],
+          ["Pastilha Fendi MA 20x20", "Decortiles", "m²", 3.24],
+          ["Sampa Fendi AC 90x90", "Decortiles", "m²", 23.84],
+          ["Travertino Reale Greige Satin 90x90", "Biancogres", "m²", 4.64],
+          ["Samba Rock Off White Natural 90x90", "Portobello", "m²", 11.46],
+          ["Nantes Cream Satin 90x90", "Biancogres", "m²", 13.61],
+          ["Village Gris BR 10x40", "Decortiles", "m²", 8.43],
+          ["Eco Cinza EXT 90x90", "Decortiles", "m²", 9.34],
+        ]),
+        mkSub("Revestimentos — Paredes", [
+          ["Pedra São Tomé Amarela", "fachada", "m²", 34],
+          ["Reboco desempenado irregular, pintura mineral fosca", "bege e branco", ""],
+          ["Gouache Nuage 7,5x15,5", "Portobello, brilho bold", "m²", 14.72, "10,60 m² cozinha + 4,12 m² área de churrasco"],
+          ["Originale Bianco 32x60", "Biancogres, brilho retificado", "m²", 7.78],
+        ]),
+        mkSub("Marcenaria (ver MA01–MA15)", [
+          ["Cozinha — armários e gavetões", "MDF Tauari, Guararapes, RUC", "", "", "ver MA01/MA02"],
+          ["Despensa — armários e prateleiras", "MDF Maxi Branco, Guararapes", "", "", "ver MA03"],
+          ["Área de churrasco — armários e forno elétrico embutido", "MDF Tauari, Guararapes, RUC", "", "", "ver MA04"],
+          ["Lavabo social — espelho e prateleira embutida", "MDF Tauari, Guararapes", "", "", "ver MA05"],
+          ["Banco externo", "MDF Tauari, Guararapes", "", "", "ver MA06"],
+          ["Sala de TV — painel ripado e adega", "MDF Tauari, Guararapes", "", "", "ver MA07"],
+          ["Área de serviço — armários e gaveteiro", "MDF Maxi Branco, Guararapes, RUC", "", "", "ver MA09"],
+          ["Suíte — cabeceira com nicho de fita LED", "MDF Tauari / MDF Areia, Guararapes", "", "", "ver MA11"],
+          ["Closet — guarda-roupas e cabideiros", "MDF Maxi Branco, Guararapes", "", "", "ver MA12"],
+          ["Banheiro suíte — gaveteiro e nicho", "MDF Tauari, Guararapes, RUC", "", "", "ver MA13"],
+          ["Banheiro social — espelho e prateleira", "MDF Tauari, Guararapes, RUC", "", "", "ver MA14"],
+          ["Quarto de visitas — guarda-roupa e criado-mudo", "MDF Tauari, Guararapes", "", "", "ver MA15"],
+        ]),
+        mkSub("Marmoraria (ver M01–M09)", [
+          ["Soleiras", "tons próximos ao piso", "", "", "ver M01"],
+          ["Bancada área de churrasco", "Pedra Taj Mahal Polida", "", "", "ver M02"],
+          ["Bancada lavabo externo", "Pedra Taj Mahal Polida", "", "", "ver M03"],
+          ["Bancada cozinha", "Pedra Taj Mahal Polida", "", "", "ver M04"],
+          ["Bancada lavabo interno", "Pedra Taj Mahal Polida", "", "", "ver M05"],
+          ["Bancada área de serviço", "Pedra Preto São Gabriel Polida", "", "", "ver M06"],
+          ["Soleiras — 1º pavimento", "Pedra Taj Mahal Polida", "", "", "ver M07"],
+          ["Bancada banheiro suíte", "Pedra Taj Mahal Polida", "", "", "ver M08"],
+          ["Bancada banheiro social", "Pedra Taj Mahal Polida", "", "", "ver M09"],
+        ]),
+      ]),
+      mkCat("Instalações", [
+        mkSub("Instalações Elétricas", [
+          ["Pontos de tomada — térreo", "ver legenda P13", ""],
+          ["Circuitos de iluminação — térreo", "ver legenda P14/P15", ""],
+          ["Pontos de tomada — 1º pavimento", "ver legenda P16", ""],
+          ["Circuitos de iluminação — 1º pavimento", "ver legenda P17/P18", ""],
+        ]),
+        mkSub("Instalações Hidráulicas", [["Rede hidrossanitária completa", "", "", "", "Nenhum projeto hidrossanitário foi recebido — pendente"]]),
+      ]),
+    ],
+  },
+  lazer: {
+    label: "Área de Lazer (piscina e jardim)",
+    reservaPct: 15,
+    categorias: [
+      mkCat("Área de Lazer", [
+        mkSub("Piscina", [
+          ["Piscina — lâmina d'água", "", "m²", 11.21],
+          ["Borda da piscina", "", "m²", 32.82],
+          ["Sistema de filtragem / casa de máquinas", "", "", "", "Ponto elétrico do filtro indicado próximo ao ateliê — confirmar localização definitiva"],
+        ]),
+        mkSub("Paisagismo e Área Externa", [
+          ["Calçada em piso drenante", "", "m²", 215.65],
+          ["Área de calçada complementar", "", "m²", 46.92],
+          ["Grama e seixo rolado marrom", "", ""],
+          ["Jardineiras / paisagismo", "", "", "", "Projeto paisagístico não detalhado — pendente"],
+        ]),
+      ]),
+    ],
+  },
+};
+
+const OBRA_KEYS = ["atelie", "garagem", "casa", "lazer"];
+const CUB_ES_VALOR = 3056.76;
+const AREA_REFERENCIA = { atelie: 126.963, garagem: 75.648, casa: 250.483, lazer: null };
+
+function estimativaParametrica(obraKey) {
+  const area = AREA_REFERENCIA[obraKey];
+  if (!area) return null;
+  if (obraKey === "garagem") return { min: area * CUB_ES_VALOR * 0.8, max: area * CUB_ES_VALOR * 1.0 };
+  return { min: area * CUB_ES_VALOR * 1.0, max: area * CUB_ES_VALOR * 1.5 };
+}
+
+function itemTotals(item) {
+  const q = toNumber(item.quantidade);
+  const pm = toNumber(item.precoUnitMaterial);
+  const moTotal = toNumber(item.precoUnitMO);
+  const totalMaterial = q * pm;
+  const totalItem = totalMaterial + moTotal;
+  const realizadoMaterial = toNumber(item.realizadoMaterial);
+  const realizadoMO = toNumber(item.realizadoMO);
+  const realizado = realizadoMaterial + realizadoMO;
+  return { totalMaterial, totalMO: moTotal, totalItem, realizadoMaterial, realizadoMO, realizado };
+}
+
+function hasOverride(v) { return v !== undefined && v !== null && v !== ""; }
+
+function obraGrandTotal(obra) {
+  const rows = buildSheetRows(obra);
+  let estimado = 0, realizado = 0;
+  rows.forEach((r) => { if (r.type === "categoria") { estimado += r.total; realizado += r.totalRealizado; } });
+  estimado += toNumber(obra.maoDeObraGeral);
+  return { estimado, realizado };
+}
+
+function formatCurrency(value) {
+  const n = toNumber(value);
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+function formatDate(dateStr) {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr + "T00:00:00");
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("pt-BR");
+}
+function priorityBg(priority) {
+  if (priority === "Alta") return COLORS.danger;
+  if (priority === "Média") return COLORS.amber;
+  return COLORS.moss;
+}
+function classifyTask(urgente, importante) {
+  if (urgente === null || importante === null || urgente === undefined || importante === undefined) return null;
+  if (urgente && importante) return "fazer-agora";
+  return "planejar";
+}
+function isTaskOverdue(task) {
+  if (!task.dueDate || task.status === "Concluído") return false;
+  return task.dueDate < todayStr();
+}
+
+const panelStyle = { background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6 };
+const inputStyle = {
+  fontFamily: FONT_SANS, fontSize: 13, padding: "6px 10px",
+  border: `1px solid ${COLORS.border}`, borderRadius: 4,
+  background: "#F7F7EF", color: COLORS.ink, outline: "none",
+};
+const cellInputStyle = {
+  width: "100%", border: `1px dotted ${COLORS.dotted}`, background: "transparent",
+  fontFamily: FONT_SANS, fontSize: 12, padding: "6px 5px", color: COLORS.ink, outline: "none", borderRadius: 3,
+};
+const stickyThStyle = { position: "sticky", top: 0, zIndex: 3, padding: "8px 10px", background: COLORS.primary, color: "#fff", fontWeight: 600, whiteSpace: "nowrap" };
+const labelStyle = { display: "block", fontSize: 11, color: COLORS.inkMuted, marginBottom: 4 };
+const btnPrimary = {
+  fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600, padding: "8px 14px",
+  background: COLORS.primary, color: "#fff", border: "none", borderRadius: 4,
+  cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
+};
+const btnGhost = { ...btnPrimary, background: "transparent", color: COLORS.primaryDark, border: `1px solid ${COLORS.primary}` };
+const deleteBtnStyle = { background: "none", border: "none", cursor: "pointer", color: COLORS.inkMuted, fontSize: 15, lineHeight: 1, padding: 4 };
+
+const TABS = [
+  { id: "geral", label: "Visão geral", icon: "🏠" },
+  { id: "tarefas", label: "Tarefas", icon: "✅" },
+  { id: "estimativas", label: "Estimativas", icon: "🧮" },
+  { id: "orcamento", label: "Orçamento", icon: "📑" },
+  { id: "fornecedores", label: "Fornecedores", icon: "🏬" },
+  { id: "financeiro", label: "Financeiro", icon: "💰" },
+  { id: "revisoes", label: "Revisões de Projetos", icon: "📋" },
+];
+
+/* ---------- persistence: db capability with localStorage fallback ---------- */
+function usePersistentState(storageKey, defaultValue, dbClient, dbPath, onWriteError) {
+  const [value, setValue] = useState(defaultValue);
+  const [loaded, setLoaded] = useState(false);
+  const lastWritten = useRef(undefined);
+
+  useEffect(() => {
+    if (dbClient === "pending") return;
+    let unsub = null;
+    if (dbClient) {
+      const ref = dbClient.doc(dbPath);
+      unsub = ref.onSnapshot(
+        (snap) => {
+          if (snap.exists && snap.data() && snap.data().value !== undefined) {
+            const remote = snap.data().value;
+            lastWritten.current = JSON.stringify(remote);
+            setValue(remote);
+          }
+          setLoaded(true);
+        },
+        () => setLoaded(true)
+      );
+    } else {
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        if (raw) {
+          lastWritten.current = raw;
+          setValue(JSON.parse(raw));
+        }
+      } catch (e) {}
+      setLoaded(true);
+    }
+    return () => { if (unsub) unsub(); };
+  }, [dbClient]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const serialized = JSON.stringify(value);
+    if (serialized === lastWritten.current) return;
+    const previousLastWritten = lastWritten.current;
+    lastWritten.current = serialized;
+    if (dbClient && dbClient !== "pending") {
+      dbClient.doc(dbPath).set({ value }).catch((err) => {
+        lastWritten.current = previousLastWritten;
+        if (onWriteError) onWriteError(err);
+      });
+    } else if (dbClient === null) {
+      try { window.localStorage.setItem(storageKey, serialized); } catch (e) {}
+    }
+  }, [value, loaded, dbClient]);
+
+  return [value, setValue, loaded];
+}
+
+/* ---------- shared bits ---------- */
+function YesNoToggle({ value, onChange }) {
+  const opt = (v, label) => (
+    <button type="button" onClick={() => onChange(v)} style={{ flex: 1, padding: "6px 0", fontSize: 12, fontWeight: 600, border: `1px solid ${COLORS.border}`, background: value === v ? COLORS.primary : "#F7F7EF", color: value === v ? "#fff" : COLORS.inkMuted, cursor: "pointer" }}>{label}</button>
+  );
+  return (<div style={{ display: "flex", borderRadius: 4, overflow: "hidden" }}>{opt(true, "Sim")}{opt(false, "Não")}</div>);
+}
+
+function ConfirmButton({ onConfirm, children, style, confirmLabel }) {
+  const [confirming, setConfirming] = useState(false);
+  const timeoutRef = useRef(null);
+  useEffect(() => () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); }, []);
+  function handleClick(e) {
+    e.stopPropagation();
+    if (confirming) {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      setConfirming(false);
+      onConfirm();
+    } else {
+      setConfirming(true);
+      timeoutRef.current = setTimeout(() => setConfirming(false), 3000);
+    }
+  }
+  return (
+    <button onClick={handleClick} style={confirming ? { ...style, background: COLORS.danger, color: "#fff", fontWeight: 700, border: "none" } : style}>
+      {confirming ? (confirmLabel || "Confirmar?") : children}
+    </button>
+  );
+}
+
+function CompareBars({ data }) {
+  const max = Math.max(1, ...data.flatMap((d) => [d.estimado, d.realizado]));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {data.map((d) => (
+        <div key={d.name}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{d.name}</div>
+          {[["Estimado", d.estimado, COLORS.primaryLight], ["Realizado", d.realizado, COLORS.kiln]].map(([lbl, val, color]) => (
+            <div key={lbl} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <div style={{ width: 66, fontSize: 10, color: COLORS.inkMuted }}>{lbl}</div>
+              <div style={{ flex: 1, background: "#F7F7EF", borderRadius: 3, height: 14 }}>
+                <div style={{ width: `${(val / max) * 100}%`, background: color, height: "100%", borderRadius: 3 }} />
+              </div>
+              <div style={{ width: 110, fontSize: 11, fontFamily: FONT_MONO, textAlign: "right" }}>{formatCurrency(val)}</div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- Visao Geral ---------- */
+function VisaoGeral({ totalEstimado, totalRealizado, chartData, pendingRevisions, tasksAguardando, tasksAtrasadas, onGoToTab }) {
+  const saldo = totalEstimado - totalRealizado;
+  const percentUsed = totalEstimado > 0 ? (totalRealizado / totalEstimado) * 100 : 0;
+  const stats = [
+    { label: "Total estimado", value: formatCurrency(totalEstimado) },
+    { label: "Total realizado", value: formatCurrency(totalRealizado) },
+    { label: "Saldo", value: formatCurrency(saldo), warn: saldo < 0 },
+    { label: "% executado", value: `${percentUsed.toFixed(1)}%` },
+  ];
+  const paramAtelie = estimativaParametrica("atelie");
+  const paramCasa = estimativaParametrica("casa");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", ...panelStyle }}>
+        {stats.map((s, i) => (
+          <div key={s.label} style={{ padding: "16px 20px", borderRight: i < stats.length - 1 ? `1px solid ${COLORS.border}` : "none" }}>
+            <div style={{ fontSize: 12, color: COLORS.inkMuted, marginBottom: 6 }}>{s.label}</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 20, fontWeight: 600, color: s.warn ? COLORS.danger : COLORS.ink }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ ...panelStyle, padding: 20 }}>
+        <div style={{ fontFamily: FONT_SERIF, fontSize: 16, marginBottom: 14 }}>Estimado x realizado por obra</div>
+        <CompareBars data={chartData} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+        <div style={{ ...panelStyle, padding: 20 }}>
+          <div style={{ fontFamily: FONT_SERIF, fontSize: 16, marginBottom: 10 }}>Revisões pendentes</div>
+          {pendingRevisions.length === 0 ? (
+            <div style={{ fontSize: 13, color: COLORS.inkMuted }}>Nenhuma revisão pendente no momento.</div>
+          ) : (
+            <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
+              {pendingRevisions.slice(0, 3).map((r) => (
+                <li key={r.id} style={{ fontSize: 13 }}><span style={{ fontWeight: 600 }}>{r.title}</span><span style={{ color: COLORS.inkMuted }}> — {r.status}</span></li>
+              ))}
+            </ul>
+          )}
+          <button onClick={() => onGoToTab("revisoes")} style={{ ...btnGhost, marginTop: 14, fontSize: 12, padding: "6px 10px" }}>Ver todas as revisões</button>
+        </div>
+        <div style={{ ...panelStyle, padding: 20 }}>
+          <div style={{ fontFamily: FONT_SERIF, fontSize: 16, marginBottom: 10 }}>Tarefas</div>
+          <div style={{ fontSize: 13, color: COLORS.inkMuted, marginBottom: 4 }}>Esperando triagem</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>{tasksAguardando} {tasksAguardando === 1 ? "tarefa" : "tarefas"}</div>
+          <div style={{ fontSize: 13, color: COLORS.inkMuted, marginBottom: 4 }}>Em atraso</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: tasksAtrasadas > 0 ? COLORS.danger : COLORS.ink }}>{tasksAtrasadas} {tasksAtrasadas === 1 ? "tarefa" : "tarefas"}</div>
+          <button onClick={() => onGoToTab("tarefas")} style={{ ...btnGhost, marginTop: 14, fontSize: 12, padding: "6px 10px" }}>Ver quadro de tarefas</button>
+        </div>
+        <div style={{ ...panelStyle, padding: 20 }}>
+          <div style={{ fontFamily: FONT_SERIF, fontSize: 16, marginBottom: 10 }}>Estimativa paramétrica</div>
+          <div style={{ fontSize: 13, color: COLORS.inkMuted, marginBottom: 4 }}>Ateliê</div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>{formatCurrency(paramAtelie.min)} – {formatCurrency(paramAtelie.max)}</div>
+          <div style={{ fontSize: 13, color: COLORS.inkMuted, marginBottom: 4 }}>Casa</div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{formatCurrency(paramCasa.min)} – {formatCurrency(paramCasa.max)}</div>
+          <button onClick={() => onGoToTab("financeiro")} style={{ ...btnGhost, marginTop: 14, fontSize: 12, padding: "6px 10px" }}>Ver financeiro</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Tarefas ---------- */
+function NovaTarefaForm({ onSubmit, onCancel }) {
+  const [title, setTitle] = useState("");
+  const [urgente, setUrgente] = useState(null);
+  const [importante, setImportante] = useState(null);
+  const [dueDate, setDueDate] = useState("");
+  const [responsavelTipo, setResponsavelTipo] = useState("");
+  const [responsavelOutro, setResponsavelOutro] = useState("");
+  const [observacoes, setObservacoes] = useState("");
+
+  const classification = classifyTask(urgente, importante);
+  const showDate = classification === "planejar";
+
+  function submit() {
+    if (!title.trim()) return;
+    onSubmit({ title, urgente, importante, dueDate, responsavelTipo, responsavelOutro, observacoes });
+  }
+
+  return (
+    <div style={{ ...panelStyle, padding: 16, marginBottom: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div>
+        <label style={labelStyle}>O que precisa ser feito?</label>
+        <input autoFocus style={{ ...inputStyle, width: "100%" }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: pedir orçamento do forno de cerâmica" />
+      </div>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 160px" }}>
+          <div style={{ fontSize: 11, color: COLORS.inkMuted, marginBottom: 3 }}>É urgente?</div>
+          <YesNoToggle value={urgente} onChange={setUrgente} />
+        </div>
+        <div style={{ flex: "1 1 160px" }}>
+          <div style={{ fontSize: 11, color: COLORS.inkMuted, marginBottom: 3 }}>É importante?</div>
+          <YesNoToggle value={importante} onChange={setImportante} />
+        </div>
+      </div>
+      {classification === "fazer-agora" && (
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: COLORS.danger, padding: "6px 10px", borderRadius: 4, display: "inline-block" }}>Fazer agora</div>
+      )}
+      {showDate && (
+        <div>
+          <label style={labelStyle}>Resolver até quando?</label>
+          <input type="date" style={{ ...inputStyle, width: "100%" }} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        </div>
+      )}
+      <div>
+        <label style={labelStyle}>Responsável</label>
+        <select style={{ ...inputStyle, width: "100%" }} value={responsavelTipo} onChange={(e) => setResponsavelTipo(e.target.value)}>
+          <option value="">Selecionar</option>
+          {RESPONSAVEL_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+        {responsavelTipo === "Outro" && <input style={{ ...inputStyle, width: "100%", marginTop: 4 }} value={responsavelOutro} onChange={(e) => setResponsavelOutro(e.target.value)} placeholder="Quem?" />}
+      </div>
+      <div>
+        <label style={labelStyle}>Observações</label>
+        <textarea style={{ ...inputStyle, width: "100%", minHeight: 50, fontFamily: FONT_SANS }} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button style={btnPrimary} onClick={submit}>Adicionar</button>
+        <button style={btnGhost} onClick={onCancel}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+function TaskCard({ task, onUpdate, onRemove, onComplete, onRecomputeStatus }) {
+  const [expanded, setExpanded] = useState(false);
+  const [editingObs, setEditingObs] = useState(false);
+  const classification = classifyTask(task.urgente, task.importante);
+  const isFazerAgora = classification === "fazer-agora" && task.status !== "Em andamento";
+  const dotColor = classification === "planejar" ? (task.dueDate ? (isTaskOverdue(task) ? COLORS.danger : COLORS.moss) : COLORS.amber) : COLORS.border;
+
+  return (
+    <div draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", task.id)}
+      style={{ borderRadius: 6, overflow: "hidden", border: `1px solid ${isFazerAgora ? COLORS.danger : COLORS.border}`, background: isFazerAgora ? COLORS.danger : COLORS.surface }}>
+      <div onClick={() => setExpanded((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer" }}>
+        {isFazerAgora ? (
+          <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", background: "rgba(255,255,255,0.25)", padding: "2px 6px", borderRadius: 4, flexShrink: 0 }}>Fazer agora</span>
+        ) : (
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
+        )}
+        <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: isFazerAgora ? "#fff" : COLORS.ink, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: expanded ? "normal" : "nowrap" }}>{task.title || "(sem título)"}</div>
+        <button onClick={(e) => { e.stopPropagation(); onRemove(task.id); }} style={{ ...deleteBtnStyle, color: isFazerAgora ? "rgba(255,255,255,0.85)" : COLORS.inkMuted }}>×</button>
+        <span style={{ color: isFazerAgora ? "#fff" : COLORS.ink, fontSize: 11 }}>{expanded ? "▾" : "▸"}</span>
+      </div>
+      {expanded && (
+        <div style={{ padding: "0 12px 12px", color: isFazerAgora ? "#fff" : COLORS.ink }}>
+          <input value={task.title} onChange={(e) => onUpdate(task.id, { title: e.target.value })}
+            style={{ ...inputStyle, width: "100%", fontWeight: 600, border: "none", background: "transparent", padding: "0 0 8px 0", color: isFazerAgora ? "#fff" : COLORS.ink }} />
+          {classification && (
+            <button onClick={() => onUpdate(task.id, { urgente: null, importante: null })}
+              style={{ ...btnGhost, fontSize: 10, padding: "3px 8px", marginBottom: 10, ...(isFazerAgora ? { color: "#fff", borderColor: "rgba(255,255,255,0.6)" } : {}) }}>
+              reclassificar
+            </button>
+          )}
+          {classification === null && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+              <div><div style={{ fontSize: 11, color: COLORS.inkMuted, marginBottom: 3 }}>É urgente?</div><YesNoToggle value={task.urgente} onChange={(v) => onUpdate(task.id, { urgente: v })} /></div>
+              <div><div style={{ fontSize: 11, color: COLORS.inkMuted, marginBottom: 3 }}>É importante?</div><YesNoToggle value={task.importante} onChange={(v) => onUpdate(task.id, { importante: v })} /></div>
+            </div>
+          )}
+          {classification === "planejar" && (
+            <div style={{ marginBottom: 10 }}>
+              <label style={labelStyle}>Resolver até quando?</label>
+              <input type="date" value={task.dueDate} onChange={(e) => onUpdate(task.id, { dueDate: e.target.value })} onBlur={() => onRecomputeStatus(task.id)} style={{ ...inputStyle, width: "100%", fontSize: 11, color: isTaskOverdue(task) ? COLORS.danger : COLORS.ink }} />
+              {isTaskOverdue(task) && <div style={{ fontSize: 11, color: "#FFD9D2", marginTop: 3 }}>prazo vencido</div>}
+            </div>
+          )}
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ ...labelStyle, color: isFazerAgora ? "rgba(255,255,255,0.85)" : COLORS.inkMuted }}>Responsável</label>
+            <select value={task.responsavelTipo} onChange={(e) => onUpdate(task.id, { responsavelTipo: e.target.value })} style={{ ...inputStyle, width: "100%", fontSize: 11 }}>
+              <option value="">Selecionar</option>
+              {RESPONSAVEL_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+            {task.responsavelTipo === "Outro" && <input value={task.responsavelOutro} onChange={(e) => onUpdate(task.id, { responsavelOutro: e.target.value })} placeholder="Quem?" style={{ ...inputStyle, width: "100%", fontSize: 11, marginTop: 4 }} />}
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <label style={{ ...labelStyle, marginBottom: 0, color: isFazerAgora ? "rgba(255,255,255,0.85)" : COLORS.inkMuted }}>Observações</label>
+              {!editingObs && (
+                <button onClick={() => setEditingObs(true)} style={{ ...btnGhost, fontSize: 10, padding: "2px 8px", ...(isFazerAgora ? { color: "#fff", borderColor: "rgba(255,255,255,0.6)" } : {}) }}>Editar</button>
+              )}
+            </div>
+            {editingObs ? (
+              <textarea autoFocus value={task.observacoes} onChange={(e) => onUpdate(task.id, { observacoes: e.target.value })} onBlur={() => setEditingObs(false)} style={{ ...inputStyle, width: "100%", fontSize: 11, minHeight: 40, fontFamily: FONT_SANS, marginTop: 4 }} />
+            ) : (
+              <div style={{ fontSize: 12, color: isFazerAgora ? "rgba(255,255,255,0.85)" : COLORS.inkMuted, marginTop: 4, fontStyle: task.observacoes ? "normal" : "italic" }}>{task.observacoes || "Sem observações"}</div>
+            )}
+          </div>
+          <button onClick={() => onComplete(task.id)} style={{ ...btnGhost, fontSize: 11, ...(isFazerAgora ? { color: "#fff", borderColor: "rgba(255,255,255,0.6)" } : {}) }}>Concluir tarefa</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TaskColumn({ status, tasks, onUpdateTask, onRemoveTask, onMoveTask, onCompleteTask, onRecomputeStatus }) {
+  return (
+    <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => { const id = e.dataTransfer.getData("text/plain"); onMoveTask(id, status); }} style={{ background: "#F7F7EF", border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: 10, minHeight: 200 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.inkMuted, marginBottom: 10, display: "flex", justifyContent: "space-between" }}><span>{status}</span><span>{tasks.length}</span></div>
+      {status === "A fazer" ? (
+        <>
+          {["Fazer agora", "Atrasadas", "Dentro do prazo", "Sem classificação"].map((groupLabel) => {
+            const groupTasks = tasks.filter((t) => {
+              const cls = classifyTask(t.urgente, t.importante);
+              if (groupLabel === "Fazer agora") return cls === "fazer-agora";
+              if (groupLabel === "Atrasadas") return cls === "planejar" && isTaskOverdue(t);
+              if (groupLabel === "Dentro do prazo") return cls === "planejar" && !isTaskOverdue(t);
+              return cls === null;
+            });
+            if (groupTasks.length === 0) return null;
+            return (
+              <div key={groupLabel} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, color: groupLabel === "Atrasadas" ? COLORS.danger : COLORS.inkMuted, marginBottom: 6 }}>{groupLabel}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {groupTasks.map((task) => <TaskCard key={task.id} task={task} onUpdate={onUpdateTask} onRemove={onRemoveTask} onComplete={onCompleteTask} onRecomputeStatus={onRecomputeStatus} />)}
+                </div>
+              </div>
+            );
+          })}
+          {tasks.length === 0 && <div style={{ fontSize: 12, color: COLORS.inkMuted, textAlign: "center", padding: "12px 0" }}>vazio</div>}
+        </>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {tasks.map((task) => <TaskCard key={task.id} task={task} onUpdate={onUpdateTask} onRemove={onRemoveTask} onComplete={onCompleteTask} onRecomputeStatus={onRecomputeStatus} />)}
+          {tasks.length === 0 && <div style={{ fontSize: 12, color: COLORS.inkMuted, textAlign: "center", padding: "12px 0" }}>vazio</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Tarefas({ tasks, onAddTask, onUpdateTask, onRemoveTask, onMoveTask, onCompleteTask, onReopenTask, onRecomputeStatus }) {
+  const [showForm, setShowForm] = useState(false);
+  const [view, setView] = useState("quadro");
+  const [filterResp, setFilterResp] = useState("Todos");
+
+  function matchesFilter(t) { return filterResp === "Todos" || t.responsavelTipo === filterResp; }
+  const activeTasks = tasks.filter((t) => t.status !== "Concluído" && matchesFilter(t));
+  const historyTasks = tasks.filter((t) => t.status === "Concluído" && matchesFilter(t)).sort((a, b) => (a.dateCompleted < b.dateCompleted ? 1 : -1));
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ fontFamily: FONT_SERIF, fontSize: 18 }}>Tarefas</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setView("quadro")} style={view === "quadro" ? btnPrimary : btnGhost}>Quadro</button>
+          <button onClick={() => setView("historico")} style={view === "historico" ? btnPrimary : btnGhost}>Histórico</button>
+        </div>
+      </div>
+
+      {view === "quadro" && (
+        <div>
+          <div style={{ fontSize: 13, color: COLORS.inkMuted, margin: "6px 0 16px" }}>
+            Ao criar a tarefa, já respondam se é urgente e importante — se for o caso, ela já vai para "A fazer". Para mover uma tarefa entre as colunas, arrastem o cartão para o lado.
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: COLORS.inkMuted }}>Filtro: Responsável</span>
+              <select value={filterResp} onChange={(e) => setFilterResp(e.target.value)} style={{ ...inputStyle, fontSize: 12 }}>
+                {FILTER_RESPONSAVEL_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            {!showForm && <button style={btnGhost} onClick={() => setShowForm(true)}>+ Nova tarefa</button>}
+          </div>
+          {showForm && (
+            <NovaTarefaForm onSubmit={(data) => { onAddTask(data); setShowForm(false); }} onCancel={() => setShowForm(false)} />
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(230px, 1fr))", gap: 12, overflowX: "auto" }}>
+            {TASK_STATUS_OPTIONS.map((status) => (
+              <TaskColumn key={status} status={status} tasks={activeTasks.filter((t) => t.status === status)} onUpdateTask={onUpdateTask} onRemoveTask={onRemoveTask} onMoveTask={onMoveTask} onCompleteTask={onCompleteTask} onRecomputeStatus={onRecomputeStatus} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {view === "historico" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {historyTasks.length === 0 && <div style={{ ...panelStyle, padding: 24, fontSize: 13, color: COLORS.inkMuted, textAlign: "center" }}>Nenhuma tarefa concluída ainda.</div>}
+          {historyTasks.map((task) => (
+            <div key={task.id} style={{ ...panelStyle, padding: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 14, fontWeight: 600, textDecoration: "line-through", color: COLORS.inkMuted }}>{task.title}</div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: COLORS.inkMuted, fontFamily: FONT_MONO }}>concluída em {formatDate(task.dateCompleted)}</span>
+                  <button onClick={() => onReopenTask(task.id)} style={{ ...btnGhost, fontSize: 11, padding: "4px 8px" }}>Reabrir</button>
+                  <button onClick={() => onRemoveTask(task.id)} style={deleteBtnStyle}>×</button>
+                </div>
+              </div>
+              {task.responsavelTipo && <div style={{ fontSize: 12, color: COLORS.inkMuted, marginTop: 6 }}>Responsável: {task.responsavelTipo === "Outro" ? task.responsavelOutro : task.responsavelTipo}</div>}
+              {task.observacoes && <div style={{ fontSize: 12, color: COLORS.inkMuted, marginTop: 4 }}>{task.observacoes}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Estimativas e Orcamentos ---------- */
+function CategoriaCodeInput({ code, onCommit }) {
+  const [value, setValue] = useState(code);
+  useEffect(() => { setValue(code); }, [code]);
+  function commit() {
+    const n = parseInt(value, 10);
+    if (!isNaN(n) && n > 0 && String(n) !== code) onCommit(n);
+    else setValue(code);
+  }
+  return (
+    <input type="text" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }}
+      style={{ width: 30, textAlign: "center", fontFamily: FONT_MONO, fontWeight: 700, border: `1px dotted ${COLORS.dotted}`, borderRadius: 3, background: "transparent", padding: "4px 2px" }} />
+  );
+}
+
+const GERAL_KEY = "geral";
+function buildGeralObra(data) {
+  return {
+    label: "Geral (Ateliê + Garagem + Casa)",
+    reservaPct: 0,
+    maoDeObraGeral: 0,
+    categorias: [...data.atelie.categorias, ...data.garagem.categorias, ...data.casa.categorias],
+  };
+}
+
+function buildSheetRows(obra) {
+  const rows = [];
+  obra.categorias.forEach((cat, ci) => {
+    const catRowIdx = rows.length;
+    rows.push({ type: "categoria", code: `${ci + 1}`, nome: cat.nome, catId: cat.id, total: 0, totalMaterial: 0, totalMO: 0, realizadoMaterial: 0, realizadoMO: 0, totalRealizado: 0 });
+    let catMaterial = 0, catMO = 0, catRealMaterial = 0, catRealMO = 0;
+    const catLocked = hasOverride(cat.realizadoMaterialManual) || hasOverride(cat.realizadoMOManual);
+    cat.subcategorias.forEach((sub, si) => {
+      const subRowIdx = rows.length;
+      rows.push({ type: "subcategoria", code: `${ci + 1}.${si + 1}`, nome: sub.nome, catId: cat.id, subId: sub.id, total: 0, totalMaterial: 0, totalMO: 0, realizadoMaterial: 0, realizadoMO: 0, totalRealizado: 0 });
+      let subMaterial = 0, subMO = 0, subRealMaterial = 0, subRealMO = 0;
+      const subLocked = catLocked || hasOverride(sub.realizadoMaterialManual) || hasOverride(sub.realizadoMOManual);
+      sub.itens.forEach((item, ii) => {
+        const t = itemTotals(item);
+        subMaterial += t.totalMaterial;
+        subMO += t.totalMO;
+        subRealMaterial += t.realizadoMaterial;
+        subRealMO += t.realizadoMO;
+        rows.push({ type: "item", code: `${ci + 1}.${si + 1}.${ii + 1}`, item, catId: cat.id, subId: sub.id, total: t.totalItem, locked: subLocked });
+      });
+      const subRow = rows[subRowIdx];
+      subRow.totalMaterial = subMaterial;
+      subRow.totalMO = subMO;
+      subRow.total = subMaterial + subMO;
+      subRow.realizadoMaterial = hasOverride(sub.realizadoMaterialManual) ? toNumber(sub.realizadoMaterialManual) : subRealMaterial;
+      subRow.realizadoMO = hasOverride(sub.realizadoMOManual) ? toNumber(sub.realizadoMOManual) : subRealMO;
+      subRow.totalRealizado = subRow.realizadoMaterial + subRow.realizadoMO;
+      catMaterial += subMaterial;
+      catMO += subMO;
+      catRealMaterial += subRow.realizadoMaterial;
+      catRealMO += subRow.realizadoMO;
+    });
+    const catRow = rows[catRowIdx];
+    catRow.totalMaterial = catMaterial;
+    catRow.totalMO = catMO;
+    catRow.total = catMaterial + catMO;
+    catRow.realizadoMaterial = hasOverride(cat.realizadoMaterialManual) ? toNumber(cat.realizadoMaterialManual) : catRealMaterial;
+    catRow.realizadoMO = hasOverride(cat.realizadoMOManual) ? toNumber(cat.realizadoMOManual) : catRealMO;
+    catRow.totalRealizado = catRow.realizadoMaterial + catRow.realizadoMO;
+  });
+  return rows;
+}
+
+function EstimativasOrcamentos({ data, unitOptions, onUpdateItem, onAddItemQuick, onRemoveItem, onReorderItem, onReorderCategoriaToPosition, onUpdateReserva, onUpdateMaoDeObraGeral, onAddCategoria, onAddSubcategoria, onRemoveCategoria, onRemoveSubcategoria, onUpdateCategoriaNome, onUpdateSubcategoriaNome, onAddUnitOption, onRemoveUnitOption }) {
+  const [obraKey, setObraKey] = useState("atelie");
+  const [newCatName, setNewCatName] = useState("");
+  const [subCatId, setSubCatId] = useState("");
+  const [newSubName, setNewSubName] = useState("");
+  const [newUnitName, setNewUnitName] = useState("");
+  const [openPanel, setOpenPanel] = useState(null);
+  const [draggingItemId, setDraggingItemId] = useState(null);
+  const [dragOverItemId, setDragOverItemId] = useState(null);
+
+  const isGeral = obraKey === GERAL_KEY;
+  const obra = isGeral ? buildGeralObra(data) : data[obraKey];
+  if (isGeral) {
+    onUpdateItem = () => {}; onAddItemQuick = () => {}; onRemoveItem = () => {}; onReorderItem = () => {};
+    onReorderCategoriaToPosition = () => {}; onUpdateReserva = () => {}; onUpdateMaoDeObraGeral = () => {};
+    onAddCategoria = () => {}; onAddSubcategoria = () => {}; onRemoveCategoria = () => {}; onRemoveSubcategoria = () => {};
+    onUpdateCategoriaNome = () => {}; onUpdateSubcategoriaNome = () => {}; onAddUnitOption = () => {}; onRemoveUnitOption = () => {};
+  }
+  const rows = buildSheetRows(obra);
+  const { estimado: itemsTotal } = obraGrandTotal(obra);
+  const maoDeObraGeral = toNumber(obra.maoDeObraGeral);
+  const grandTotal = itemsTotal + maoDeObraGeral;
+  const reservaPct = toNumber(obra.reservaPct);
+  const reservaValor = (grandTotal * reservaPct) / 100;
+  const totalComReserva = grandTotal + reservaValor;
+
+  useEffect(() => { if (!isGeral) setSubCatId(obra.categorias[0] ? obra.categorias[0].id : ""); }, [obraKey]);
+
+  function handleEnter(e, catId, subId) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      onAddItemQuick(obraKey, catId, subId);
+    }
+  }
+
+  function scrollToRow(id) {
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  }
+
+  function submitCategoria() {
+    if (!newCatName.trim()) return;
+    const newId = uid();
+    onAddCategoria(obraKey, newCatName, newId);
+    setNewCatName("");
+    setOpenPanel(null);
+    scrollToRow("cat-row-" + newId);
+  }
+  function submitSubcategoria() {
+    if (!newSubName.trim() || !subCatId) return;
+    const newId = uid();
+    onAddSubcategoria(obraKey, subCatId, newSubName, newId);
+    setNewSubName("");
+    setOpenPanel(null);
+    scrollToRow("sub-row-" + newId);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        <button style={openPanel === "cat" ? btnPrimary : btnGhost} onClick={() => setOpenPanel(openPanel === "cat" ? null : "cat")}>+ Categoria</button>
+        <button style={openPanel === "sub" ? btnPrimary : btnGhost} onClick={() => setOpenPanel(openPanel === "sub" ? null : "sub")}>+ Subcategoria</button>
+        <button style={openPanel === "unit" ? btnPrimary : btnGhost} onClick={() => setOpenPanel(openPanel === "unit" ? null : "unit")}>Gerenciar unidades</button>
+      </div>
+
+      {openPanel === "cat" && (
+        <div style={{ ...panelStyle, padding: 12, marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input autoFocus value={newCatName} onChange={(e) => setNewCatName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitCategoria()} placeholder="Nome da categoria" style={{ ...inputStyle, minWidth: 200 }} />
+          <button style={btnPrimary} onClick={submitCategoria}>Adicionar</button>
+          <button style={btnGhost} onClick={() => setOpenPanel(null)}>Cancelar</button>
+        </div>
+      )}
+      {openPanel === "sub" && (
+        <div style={{ ...panelStyle, padding: 12, marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select value={subCatId} onChange={(e) => setSubCatId(e.target.value)} style={{ ...inputStyle, minWidth: 180 }}>
+            {obra.categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+          <input autoFocus value={newSubName} onChange={(e) => setNewSubName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitSubcategoria()} placeholder="Nome da subcategoria" style={{ ...inputStyle, minWidth: 200 }} />
+          <button style={btnPrimary} onClick={submitSubcategoria}>Adicionar</button>
+          <button style={btnGhost} onClick={() => setOpenPanel(null)}>Cancelar</button>
+        </div>
+      )}
+      {openPanel === "unit" && (
+        <div style={{ ...panelStyle, padding: 12, marginBottom: 16 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+            <input autoFocus value={newUnitName} onChange={(e) => setNewUnitName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (newUnitName.trim() && (onAddUnitOption(newUnitName), setNewUnitName("")))} placeholder="Ex: pç, cx, rolo..." style={{ ...inputStyle, width: 140 }} />
+            <button style={btnPrimary} onClick={() => { if (!newUnitName.trim()) return; onAddUnitOption(newUnitName); setNewUnitName(""); }}>Incluir</button>
+            <button style={btnGhost} onClick={() => setOpenPanel(null)}>Fechar</button>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {unitOptions.map((u) => (
+              <span key={u} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#F0EFE3", border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "3px 6px 3px 10px", fontSize: 12 }}>
+                {u}
+                <button onClick={() => onRemoveUnitOption(u)} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.inkMuted, fontSize: 13, lineHeight: 1, padding: "0 2px" }}>×</button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      <div style={{ fontFamily: FONT_SERIF, fontSize: 18, marginBottom: 4 }}>Estimativa de Custos</div>
+      <div style={{ fontSize: 13, color: COLORS.inkMuted, marginBottom: 16 }}>
+        Cliquem em qualquer célula para editar. Para acrescentar um item, pressionem Enter na linha da subcategoria ou em qualquer campo de um item dentro dela.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {OBRA_KEYS.map((k) => <button key={k} onClick={() => setObraKey(k)} style={obraKey === k ? btnPrimary : btnGhost}>{data[k].label}</button>)}
+        <button onClick={() => setObraKey(GERAL_KEY)} style={obraKey === GERAL_KEY ? btnPrimary : btnGhost}>Geral</button>
+      </div>
+
+      <div style={{ ...panelStyle, overflowX: "auto", overflowY: "auto", maxHeight: "65vh" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 900 }}>
+          <thead>
+            <tr>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Item</th>
+              <th style={{ ...stickyThStyle, textAlign: "left", width: "38%" }}>Descrição</th>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Unid.</th>
+              <th style={{ ...stickyThStyle, textAlign: "right", width: 50 }}>Quant.</th>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Valor Material</th>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Valor M.O.</th>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Total</th>
+              <th style={stickyThStyle}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => {
+              if (row.type === "categoria") {
+                return (
+                  <tr key={row.catId} id={"cat-row-" + row.catId} style={{ background: COLORS.primaryLight }}>
+                    <td style={{ padding: "4px 10px", fontWeight: 700, fontFamily: FONT_MONO, borderTop: `2px solid ${COLORS.primary}` }}><CategoriaCodeInput code={row.code} onCommit={(n) => onReorderCategoriaToPosition(obraKey, row.catId, n)} /></td>
+                    <td colSpan={5} style={{ padding: "4px 6px", borderTop: `2px solid ${COLORS.primary}` }}>
+                      <input value={row.nome} onChange={(e) => onUpdateCategoriaNome(obraKey, row.catId, e.target.value)}
+                        style={{ ...cellInputStyle, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }} />
+                    </td>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, fontFamily: FONT_MONO, textAlign: "right", borderTop: `2px solid ${COLORS.primary}` }}>{formatCurrency(row.total)}</td>
+                    <td style={{ borderTop: `2px solid ${COLORS.primary}`, padding: "4px 6px" }}>
+                      <ConfirmButton onConfirm={() => onRemoveCategoria(obraKey, row.catId)} style={deleteBtnStyle} confirmLabel="Excluir?">×</ConfirmButton>
+                    </td>
+                  </tr>
+                );
+              }
+              if (row.type === "subcategoria") {
+                return (
+                  <tr key={row.subId} id={"sub-row-" + row.subId} style={{ background: "#EDEBDC" }}>
+                    <td style={{ padding: "5px 10px", fontWeight: 600, fontFamily: FONT_MONO, color: COLORS.primaryDark }}>{row.code}</td>
+                    <td colSpan={4} style={{ padding: "3px 6px" }}>
+                      <input value={row.nome} onKeyDown={(e) => handleEnter(e, row.catId, row.subId)}
+                        onChange={(e) => onUpdateSubcategoriaNome(obraKey, row.catId, row.subId, e.target.value)}
+                        style={{ ...cellInputStyle, fontWeight: 600, color: COLORS.primaryDark }} />
+                    </td>
+                    <td style={{ padding: "5px 10px", fontWeight: 600, fontFamily: FONT_MONO, textAlign: "right", color: COLORS.primaryDark }}>{formatCurrency(row.total)}</td>
+                    <td style={{ padding: "3px 6px" }}>
+                      <ConfirmButton onConfirm={() => onRemoveSubcategoria(obraKey, row.catId, row.subId)} style={deleteBtnStyle} confirmLabel="Excluir?">×</ConfirmButton>
+                    </td>
+                  </tr>
+                );
+              }
+              const item = row.item;
+              const t = itemTotals(item);
+              const unitList = !item.unidade || unitOptions.includes(item.unidade) ? unitOptions : [item.unidade, ...unitOptions];
+              const isDragging = draggingItemId === item.id;
+              const isDragOver = dragOverItemId === item.id && draggingItemId && draggingItemId !== item.id;
+              const hasMO = hasOverride(item.precoUnitMO);
+              return (
+                <tr key={item.id}
+                  onDragOver={(e) => { e.preventDefault(); if (dragOverItemId !== item.id) setDragOverItemId(item.id); }}
+                  onDragLeave={() => { if (dragOverItemId === item.id) setDragOverItemId(null); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOverItemId(null);
+                    setDraggingItemId(null);
+                    try {
+                      const data = JSON.parse(e.dataTransfer.getData("text/plain"));
+                      if (data.subId === row.subId && data.catId === row.catId && data.itemId !== item.id) {
+                        onReorderItem(obraKey, row.catId, row.subId, data.itemId, item.id);
+                      }
+                    } catch (err) {}
+                  }}
+                  style={{
+                    opacity: isDragging ? 0.35 : 1,
+                    outline: isDragOver ? `3px solid ${COLORS.primary}` : "none",
+                    outlineOffset: "-2px",
+                    background: isDragOver ? "#DCEAD6" : (hasMO ? "#F0F0EA" : "#FFFFFF"),
+                  }}>
+                  <td draggable
+                    onDragStart={(e) => { setDraggingItemId(item.id); e.dataTransfer.setData("text/plain", JSON.stringify({ itemId: item.id, catId: row.catId, subId: row.subId })); }}
+                    onDragEnd={() => { setDraggingItemId(null); setDragOverItemId(null); }}
+                    style={{ padding: "3px 10px", fontFamily: FONT_MONO, color: COLORS.inkMuted, fontSize: 10, borderBottom: `1px solid ${COLORS.border}`, whiteSpace: "nowrap", cursor: "grab" }}>
+                    <span style={{ marginRight: 4 }}>⠿</span>{row.code}
+                  </td>
+                  <td style={{ padding: "2px 3px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <input value={item.desc} onKeyDown={(e) => handleEnter(e, row.catId, row.subId)} onChange={(e) => onUpdateItem(obraKey, row.catId, row.subId, item.id, { desc: e.target.value })} style={cellInputStyle} />
+                  </td>
+                  <td style={{ padding: "2px 3px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <select value={item.unidade} onKeyDown={(e) => handleEnter(e, row.catId, row.subId)} onChange={(e) => onUpdateItem(obraKey, row.catId, row.subId, item.id, { unidade: e.target.value })} style={{ ...cellInputStyle, textAlign: "center" }}>
+                      <option value="">—</option>
+                      {unitList.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </td>
+                  <td style={{ padding: "2px 3px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <input type="text" inputMode="decimal" value={item.quantidade} onKeyDown={(e) => handleEnter(e, row.catId, row.subId)} onChange={(e) => onUpdateItem(obraKey, row.catId, row.subId, item.id, { quantidade: e.target.value })} style={{ ...cellInputStyle, textAlign: "right" }} />
+                  </td>
+                  <td style={{ padding: "2px 3px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <input type="text" inputMode="decimal" value={item.precoUnitMaterial} onKeyDown={(e) => handleEnter(e, row.catId, row.subId)} onChange={(e) => onUpdateItem(obraKey, row.catId, row.subId, item.id, { precoUnitMaterial: e.target.value })} style={{ ...cellInputStyle, textAlign: "right" }} />
+                  </td>
+                  <td style={{ padding: "2px 3px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <input type="text" inputMode="decimal" value={item.precoUnitMO} onKeyDown={(e) => handleEnter(e, row.catId, row.subId)} onChange={(e) => onUpdateItem(obraKey, row.catId, row.subId, item.id, { precoUnitMO: e.target.value })} style={{ ...cellInputStyle, textAlign: "right" }} />
+                  </td>
+                  <td style={{ padding: "3px 10px", fontFamily: FONT_MONO, textAlign: "right", borderBottom: `1px solid ${COLORS.border}`, fontWeight: 600 }}>{formatCurrency(t.totalItem)}</td>
+                  <td style={{ padding: "2px 3px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <button onClick={() => onRemoveItem(obraKey, row.catId, row.subId, item.id)} style={deleteBtnStyle}>×</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ ...panelStyle, padding: 16, marginTop: 16, maxWidth: 420, marginLeft: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0" }}><span>Total dos itens (material + M.O. lançados por item)</span><span style={{ fontFamily: FONT_MONO }}>{formatCurrency(itemsTotal)}</span></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "4px 0" }}>
+          <span>Verba geral de mão de obra (referente aos itens que estão sem valor lançado em MO)</span>
+          <input type="text" inputMode="decimal" value={obra.maoDeObraGeral || ""} placeholder="R$ 0,00" onChange={(e) => onUpdateMaoDeObraGeral(obraKey, e.target.value)} style={{ ...inputStyle, width: 110, padding: "2px 4px", textAlign: "right" }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0", borderTop: `1px solid ${COLORS.border}`, marginTop: 4 }}><span>TOTAL GERAL</span><span style={{ fontFamily: FONT_MONO, fontWeight: 700 }}>{formatCurrency(grandTotal)}</span></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "4px 0" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>RESERVA GERENCIAL (<input type="text" inputMode="decimal" value={obra.reservaPct} onChange={(e) => onUpdateReserva(obraKey, e.target.value)} style={{ ...inputStyle, width: 55, padding: "2px 4px" }} />%)</span>
+          <span style={{ fontFamily: FONT_MONO, fontWeight: 700 }}>{formatCurrency(reservaValor)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "8px 0 0", borderTop: `1px solid ${COLORS.border}`, marginTop: 6 }}><span style={{ fontWeight: 700 }}>TOTAL COM RESERVA</span><span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 16 }}>{formatCurrency(totalComReserva)}</span></div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Financeiro (espelho da Estimativa) ---------- */
+function NotaFiscalCell({ item, assetsClient, onUpdateItem, obraKey, catId, subId }) {
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef(null);
+
+  async function handleFile(e) {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file || !assetsClient) return;
+    setUploading(true);
+    try {
+      const result = await assetsClient.upload(file);
+      onUpdateItem(obraKey, catId, subId, item.id, { notaFiscalId: result.id, notaFiscalUrl: result.url, notaFiscalType: result.contentType });
+    } catch (err) {
+      // upload falhou silenciosamente; o campo permanece como estava
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handleRemove() {
+    onUpdateItem(obraKey, catId, subId, item.id, { notaFiscalId: "", notaFiscalUrl: "", notaFiscalType: "" });
+  }
+
+  if (assetsClient === "pending") return null;
+  if (!assetsClient) return <span style={{ fontSize: 10, color: COLORS.inkMuted }}>indisponível</span>;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      {item.notaFiscalId && (
+        <>
+          {item.notaFiscalType && item.notaFiscalType.indexOf("image/") === 0 ? (
+            <a href={item.notaFiscalUrl} target="_blank" rel="noopener noreferrer" title={item.notaFiscalUrl}>
+              <img src={item.notaFiscalUrl} alt="Nota fiscal" style={{ width: 30, height: 30, objectFit: "cover", borderRadius: 3, border: `1px solid ${COLORS.border}`, display: "block" }} />
+            </a>
+          ) : (
+            <a href={item.notaFiscalUrl} target="_blank" rel="noopener noreferrer" title={item.notaFiscalUrl} style={{ fontSize: 11, color: COLORS.moss, fontWeight: 600, textDecoration: "none" }}>
+              📄 Ver PDF
+            </a>
+          )}
+          <button onClick={handleRemove} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.inkMuted, fontSize: 13, lineHeight: 1, padding: "0 2px" }}>×</button>
+        </>
+      )}
+      <input ref={inputRef} type="file" accept="image/*,application/pdf" onChange={handleFile} style={{ display: "none" }} id={"nf-" + item.id} />
+      <label htmlFor={"nf-" + item.id} style={{ ...btnGhost, fontSize: 10, padding: "3px 6px", cursor: "pointer" }}>
+        {uploading ? "Enviando…" : item.notaFiscalId ? "Trocar" : "Anexar"}
+      </label>
+    </div>
+  );
+}
+
+function Financeiro({ data, onUpdateItem, onUpdateCategoriaRealizado, onUpdateSubcategoriaRealizado, onAddImprevisto, assetsClient }) {
+  const [obraKey, setObraKey] = useState("atelie");
+  const isGeral = obraKey === GERAL_KEY;
+  const obra = isGeral ? buildGeralObra(data) : data[obraKey];
+  if (isGeral) {
+    onUpdateItem = () => {}; onUpdateCategoriaRealizado = () => {}; onUpdateSubcategoriaRealizado = () => {}; onAddImprevisto = () => {};
+  }
+  const rows = buildSheetRows(obra);
+  const totals = obraGrandTotal(obra);
+  const diff = totals.estimado - totals.realizado;
+  const [filterTipo, setFilterTipo] = useState("todos");
+  const [showImprevistoForm, setShowImprevistoForm] = useState(false);
+  const [impCatId, setImpCatId] = useState("");
+  const [impSubId, setImpSubId] = useState("");
+  const [impForm, setImpForm] = useState({ desc: "", realizadoMaterial: "", realizadoMO: "" });
+
+  useEffect(() => { setImpCatId(obra.categorias[0] ? obra.categorias[0].id : ""); }, [obraKey]);
+  useEffect(() => {
+    const cat = obra.categorias.find((c) => c.id === impCatId);
+    setImpSubId(cat && cat.subcategorias[0] ? cat.subcategorias[0].id : "");
+  }, [impCatId, obraKey]);
+
+  const impSubOptions = (obra.categorias.find((c) => c.id === impCatId) || { subcategorias: [] }).subcategorias;
+
+  function submitImprevisto() {
+    if (!impForm.desc.trim() || !impCatId || !impSubId) return;
+    onAddImprevisto(obraKey, impCatId, impSubId, impForm);
+    setImpForm({ desc: "", realizadoMaterial: "", realizadoMO: "" });
+    setShowImprevistoForm(false);
+  }
+
+  const visibleRows = rows.filter((row) => {
+    if (row.type !== "item") return true;
+    if (filterTipo === "previsto") return !row.item.imprevisto;
+    if (filterTipo === "imprevisto") return !!row.item.imprevisto;
+    return true;
+  });
+
+  return (
+    <div>
+      <div style={{ fontFamily: FONT_SERIF, fontSize: 18, marginBottom: 4 }}>Financeiro</div>
+      <div style={{ fontSize: 13, color: COLORS.inkMuted, marginBottom: 16 }}>
+        Espelho da Estimativa de Custos, separado em material e mão de obra. Dá para lançar um valor realizado direto numa categoria ou subcategoria (útil quando uma nota fiscal cobre vários itens de uma vez) — ao fazer isso, os itens dela ficam travados para edição, para não haver duplicidade.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {OBRA_KEYS.map((k) => <button key={k} onClick={() => setObraKey(k)} style={obraKey === k ? btnPrimary : btnGhost}>{data[k].label}</button>)}
+        <button onClick={() => setObraKey(GERAL_KEY)} style={obraKey === GERAL_KEY ? btnPrimary : btnGhost}>Geral</button>
+      </div>
+      <div style={{ ...panelStyle, padding: "16px 20px", marginBottom: 16, display: "flex", gap: 24, flexWrap: "wrap" }}>
+        <div><div style={{ fontSize: 12, color: COLORS.inkMuted, marginBottom: 4 }}>Valor estimado</div><div style={{ fontFamily: FONT_MONO, fontSize: 18, fontWeight: 700 }}>{formatCurrency(totals.estimado)}</div></div>
+        <div><div style={{ fontSize: 12, color: COLORS.inkMuted, marginBottom: 4 }}>Valor realizado</div><div style={{ fontFamily: FONT_MONO, fontSize: 18, fontWeight: 700 }}>{formatCurrency(totals.realizado)}</div></div>
+        <div><div style={{ fontSize: 12, color: COLORS.inkMuted, marginBottom: 4 }}>Diferença</div><div style={{ fontFamily: FONT_MONO, fontSize: 18, fontWeight: 700, color: diff < 0 ? COLORS.danger : COLORS.moss }}>{formatCurrency(diff)}</div></div>
+      </div>
+
+      {!isGeral && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: COLORS.inkMuted }}>Filtro:</span>
+            <select value={filterTipo} onChange={(e) => setFilterTipo(e.target.value)} style={{ ...inputStyle, fontSize: 12 }}>
+              <option value="todos">Todos os itens</option>
+              <option value="previsto">Só previstos</option>
+              <option value="imprevisto">Só imprevistos</option>
+            </select>
+          </div>
+          {!showImprevistoForm && <button style={btnGhost} onClick={() => setShowImprevistoForm(true)}>+ Incluir imprevisto</button>}
+        </div>
+      )}
+      {showImprevistoForm && (
+        <div style={{ ...panelStyle, padding: 16, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div>
+            <label style={labelStyle}>Categoria</label>
+            <select value={impCatId} onChange={(e) => setImpCatId(e.target.value)} style={{ ...inputStyle, minWidth: 170 }}>
+              {obra.categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Subcategoria</label>
+            <select value={impSubId} onChange={(e) => setImpSubId(e.target.value)} style={{ ...inputStyle, minWidth: 170 }}>
+              {impSubOptions.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: "2 1 200px" }}><label style={labelStyle}>Descrição</label><input value={impForm.desc} onChange={(e) => setImpForm({ ...impForm, desc: e.target.value })} style={{ ...inputStyle, width: "100%" }} /></div>
+          <div><label style={labelStyle}>Valor realizado material</label><input type="text" inputMode="decimal" value={impForm.realizadoMaterial} onChange={(e) => setImpForm({ ...impForm, realizadoMaterial: e.target.value })} style={{ ...inputStyle, width: 130 }} /></div>
+          <div><label style={labelStyle}>Valor realizado M.O.</label><input type="text" inputMode="decimal" value={impForm.realizadoMO} onChange={(e) => setImpForm({ ...impForm, realizadoMO: e.target.value })} style={{ ...inputStyle, width: 130 }} /></div>
+          <button style={btnPrimary} onClick={submitImprevisto}>Adicionar</button>
+          <button style={btnGhost} onClick={() => setShowImprevistoForm(false)}>Cancelar</button>
+          <div style={{ fontSize: 11, color: COLORS.inkMuted, width: "100%" }}>A nota fiscal pode ser anexada depois, na coluna "Nota fiscal" da linha criada.</div>
+        </div>
+      )}
+
+      <div style={{ ...panelStyle, overflowX: "auto", overflowY: "auto", maxHeight: "65vh" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 1050 }}>
+          <thead>
+            <tr>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Item</th>
+              <th style={{ ...stickyThStyle, textAlign: "left" }}>Descrição</th>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Valor estimado material</th>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Valor estimado M.O.</th>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Valor realizado material</th>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Valor realizado M.O.</th>
+              <th style={{ ...stickyThStyle, textAlign: "left" }}>Nota fiscal</th>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Diferença</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((row, ri) => {
+              if (row.type === "categoria") {
+                const d = row.total - row.totalRealizado;
+                return (
+                  <tr key={row.catId} style={{ background: COLORS.primaryLight }}>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, fontFamily: FONT_MONO, borderTop: `2px solid ${COLORS.primary}` }}>{row.code}</td>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, borderTop: `2px solid ${COLORS.primary}` }}>{row.nome}</td>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, fontFamily: FONT_MONO, textAlign: "right", borderTop: `2px solid ${COLORS.primary}` }}>{formatCurrency(row.totalMaterial)}</td>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, fontFamily: FONT_MONO, textAlign: "right", borderTop: `2px solid ${COLORS.primary}` }}>{formatCurrency(row.totalMO)}</td>
+                    <td style={{ padding: "2px 3px", borderTop: `2px solid ${COLORS.primary}` }}>
+                      <input type="text" inputMode="decimal" disabled={isGeral} value={hasOverride(obra.categorias.find((c) => c.id === row.catId).realizadoMaterialManual) ? obra.categorias.find((c) => c.id === row.catId).realizadoMaterialManual : ""} placeholder={formatCurrency(row.realizadoMaterial)} onChange={(e) => onUpdateCategoriaRealizado(obraKey, row.catId, "realizadoMaterialManual", e.target.value)} style={{ ...cellInputStyle, textAlign: "right", fontWeight: 700 }} />
+                    </td>
+                    <td style={{ padding: "2px 3px", borderTop: `2px solid ${COLORS.primary}` }}>
+                      <input type="text" inputMode="decimal" disabled={isGeral} value={hasOverride(obra.categorias.find((c) => c.id === row.catId).realizadoMOManual) ? obra.categorias.find((c) => c.id === row.catId).realizadoMOManual : ""} placeholder={formatCurrency(row.realizadoMO)} onChange={(e) => onUpdateCategoriaRealizado(obraKey, row.catId, "realizadoMOManual", e.target.value)} style={{ ...cellInputStyle, textAlign: "right", fontWeight: 700 }} />
+                    </td>
+                    <td style={{ borderTop: `2px solid ${COLORS.primary}` }}></td>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, fontFamily: FONT_MONO, textAlign: "right", borderTop: `2px solid ${COLORS.primary}`, color: d < 0 ? COLORS.danger : "inherit" }}>{formatCurrency(d)}</td>
+                  </tr>
+                );
+              }
+              if (row.type === "subcategoria") {
+                const d = row.total - row.totalRealizado;
+                const subData = obra.categorias.find((c) => c.id === row.catId).subcategorias.find((s) => s.id === row.subId);
+                return (
+                  <tr key={row.subId} style={{ background: "#EDEBDC" }}>
+                    <td style={{ padding: "5px 10px", fontWeight: 600, fontFamily: FONT_MONO, color: COLORS.primaryDark }}>{row.code}</td>
+                    <td style={{ padding: "5px 10px", fontWeight: 600, color: COLORS.primaryDark }}>{row.nome}</td>
+                    <td style={{ padding: "5px 10px", fontWeight: 600, fontFamily: FONT_MONO, textAlign: "right", color: COLORS.primaryDark }}>{formatCurrency(row.totalMaterial)}</td>
+                    <td style={{ padding: "5px 10px", fontWeight: 600, fontFamily: FONT_MONO, textAlign: "right", color: COLORS.primaryDark }}>{formatCurrency(row.totalMO)}</td>
+                    <td style={{ padding: "2px 3px" }}>
+                      <input type="text" inputMode="decimal" disabled={isGeral} value={hasOverride(subData.realizadoMaterialManual) ? subData.realizadoMaterialManual : ""} placeholder={formatCurrency(row.realizadoMaterial)} onChange={(e) => onUpdateSubcategoriaRealizado(obraKey, row.catId, row.subId, "realizadoMaterialManual", e.target.value)} style={{ ...cellInputStyle, textAlign: "right", fontWeight: 600, color: COLORS.primaryDark }} />
+                    </td>
+                    <td style={{ padding: "2px 3px" }}>
+                      <input type="text" inputMode="decimal" disabled={isGeral} value={hasOverride(subData.realizadoMOManual) ? subData.realizadoMOManual : ""} placeholder={formatCurrency(row.realizadoMO)} onChange={(e) => onUpdateSubcategoriaRealizado(obraKey, row.catId, row.subId, "realizadoMOManual", e.target.value)} style={{ ...cellInputStyle, textAlign: "right", fontWeight: 600, color: COLORS.primaryDark }} />
+                    </td>
+                    <td></td>
+                    <td style={{ padding: "5px 10px", fontWeight: 600, fontFamily: FONT_MONO, textAlign: "right", color: d < 0 ? COLORS.danger : COLORS.primaryDark }}>{formatCurrency(d)}</td>
+                  </tr>
+                );
+              }
+              const item = row.item;
+              const t = itemTotals(item);
+              const d = t.totalItem - t.realizado;
+              const locked = row.locked;
+              return (
+                <tr key={item.id}>
+                  <td style={{ padding: "3px 10px", fontFamily: FONT_MONO, color: COLORS.inkMuted, fontSize: 10, borderBottom: `1px solid ${COLORS.border}`, whiteSpace: "nowrap" }}>{row.code}</td>
+                  <td style={{ padding: "3px 10px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    {item.imprevisto && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: COLORS.kiln, borderRadius: 3, padding: "1px 5px", marginRight: 6, verticalAlign: "middle" }}>IMPREVISTO</span>}
+                    {item.desc || "(sem descrição)"}
+                  </td>
+                  <td style={{ padding: "3px 10px", fontFamily: FONT_MONO, textAlign: "right", borderBottom: `1px solid ${COLORS.border}` }}>{formatCurrency(t.totalMaterial)}</td>
+                  <td style={{ padding: "3px 10px", fontFamily: FONT_MONO, textAlign: "right", borderBottom: `1px solid ${COLORS.border}` }}>{formatCurrency(t.totalMO)}</td>
+                  <td style={{ padding: "2px 3px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <input type="text" inputMode="decimal" disabled={locked || isGeral} value={locked ? "" : item.realizadoMaterial} placeholder={locked ? "travado" : ""} onChange={(e) => onUpdateItem(obraKey, row.catId, row.subId, item.id, { realizadoMaterial: e.target.value })} style={{ ...cellInputStyle, textAlign: "right", opacity: locked ? 0.45 : 1, fontStyle: locked ? "italic" : "normal" }} />
+                  </td>
+                  <td style={{ padding: "2px 3px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <input type="text" inputMode="decimal" disabled={locked || isGeral} value={locked ? "" : item.realizadoMO} placeholder={locked ? "travado" : ""} onChange={(e) => onUpdateItem(obraKey, row.catId, row.subId, item.id, { realizadoMO: e.target.value })} style={{ ...cellInputStyle, textAlign: "right", opacity: locked ? 0.45 : 1, fontStyle: locked ? "italic" : "normal" }} />
+                  </td>
+                  <td style={{ padding: "3px 6px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    {isGeral ? (item.notaFiscalId ? <a href={item.notaFiscalUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: COLORS.moss }}>Ver</a> : null) : (
+                      <NotaFiscalCell item={item} assetsClient={assetsClient} onUpdateItem={onUpdateItem} obraKey={obraKey} catId={row.catId} subId={row.subId} />
+                    )}
+                  </td>
+                  <td style={{ padding: "3px 10px", fontFamily: FONT_MONO, textAlign: "right", borderBottom: `1px solid ${COLORS.border}`, color: d < 0 ? COLORS.danger : COLORS.inkMuted }}>{formatCurrency(d)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11, color: COLORS.inkMuted, marginTop: 8 }}>A estimativa paramétrica (CUB-ES, Sinduscon-ES agosto/2026: R$ 3.056,76/m²) fica na Visão Geral como referência rápida.</div>
+    </div>
+  );
+}
+
+/* ---------- Fornecedores ---------- */
+/* ---------- Orcamento ---------- */
+function OrcadoCell({ orc, onChange }) {
+  const [editing, setEditing] = useState(false);
+  if (!editing) {
+    return (
+      <button onClick={() => setEditing(true)} style={{ background: "none", border: `1px dashed ${COLORS.border}`, borderRadius: 4, padding: "5px 8px", cursor: "pointer", fontSize: 11, width: "100%", textAlign: "left", color: orc.valor ? COLORS.ink : COLORS.inkMuted }}>
+        {orc.valor ? `${formatCurrency(orc.valor)}${orc.fornecedor ? " · " + orc.fornecedor : ""}` : "+ Adicionar"}
+      </button>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 130 }}>
+      <input value={orc.fornecedor} onChange={(e) => onChange({ ...orc, fornecedor: e.target.value })} placeholder="Fornecedor" style={{ ...cellInputStyle, fontSize: 11 }} />
+      <input value={orc.contato} onChange={(e) => onChange({ ...orc, contato: e.target.value })} placeholder="Contato" style={{ ...cellInputStyle, fontSize: 11 }} />
+      <input type="text" inputMode="decimal" value={orc.valor} onChange={(e) => onChange({ ...orc, valor: e.target.value })} placeholder="Valor" style={{ ...cellInputStyle, fontSize: 11 }} />
+      <button onClick={() => setEditing(false)} style={{ ...btnGhost, fontSize: 10, padding: "2px 6px" }}>OK</button>
+    </div>
+  );
+}
+
+function Orcamento({ data, onUpdateItem }) {
+  const [obraKey, setObraKey] = useState("atelie");
+  const isGeral = obraKey === GERAL_KEY;
+  const obra = isGeral ? buildGeralObra(data) : data[obraKey];
+  if (isGeral) { onUpdateItem = () => {}; }
+  const rows = buildSheetRows(obra);
+
+  return (
+    <div>
+      <div style={{ fontFamily: FONT_SERIF, fontSize: 18, marginBottom: 4 }}>Orçamento</div>
+      <div style={{ fontSize: 13, color: COLORS.inkMuted, marginBottom: 16 }}>Espelho da Estimativa de Custos, com até 3 orçamentos de fornecedores por item. Cliquem em "+ Adicionar" para registrar fornecedor, contato e valor.</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {OBRA_KEYS.map((k) => <button key={k} onClick={() => setObraKey(k)} style={obraKey === k ? btnPrimary : btnGhost}>{data[k].label}</button>)}
+        <button onClick={() => setObraKey(GERAL_KEY)} style={obraKey === GERAL_KEY ? btnPrimary : btnGhost}>Geral</button>
+      </div>
+      <div style={{ ...panelStyle, overflowX: "auto", overflowY: "auto", maxHeight: "65vh" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 950 }}>
+          <thead>
+            <tr>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Item</th>
+              <th style={{ ...stickyThStyle, textAlign: "left" }}>Descrição</th>
+              <th style={{ ...stickyThStyle, textAlign: "right" }}>Total estimado</th>
+              <th style={{ ...stickyThStyle, textAlign: "left" }}>Orçado 1</th>
+              <th style={{ ...stickyThStyle, textAlign: "left" }}>Orçado 2</th>
+              <th style={{ ...stickyThStyle, textAlign: "left" }}>Orçado 3</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => {
+              if (row.type === "categoria") {
+                return (
+                  <tr key={row.catId} style={{ background: COLORS.primaryLight }}>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, fontFamily: FONT_MONO, borderTop: `2px solid ${COLORS.primary}` }}>{row.code}</td>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, borderTop: `2px solid ${COLORS.primary}` }}>{row.nome}</td>
+                    <td style={{ padding: "6px 10px", fontWeight: 700, fontFamily: FONT_MONO, textAlign: "right", borderTop: `2px solid ${COLORS.primary}` }}>{formatCurrency(row.total)}</td>
+                    <td style={{ borderTop: `2px solid ${COLORS.primary}` }}></td>
+                    <td style={{ borderTop: `2px solid ${COLORS.primary}` }}></td>
+                    <td style={{ borderTop: `2px solid ${COLORS.primary}` }}></td>
+                  </tr>
+                );
+              }
+              if (row.type === "subcategoria") {
+                return (
+                  <tr key={row.subId} style={{ background: "#EDEBDC" }}>
+                    <td style={{ padding: "5px 10px", fontWeight: 600, fontFamily: FONT_MONO, color: COLORS.primaryDark }}>{row.code}</td>
+                    <td style={{ padding: "5px 10px", fontWeight: 600, color: COLORS.primaryDark }}>{row.nome}</td>
+                    <td style={{ padding: "5px 10px", fontWeight: 600, fontFamily: FONT_MONO, textAlign: "right", color: COLORS.primaryDark }}>{formatCurrency(row.total)}</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                  </tr>
+                );
+              }
+              const item = row.item;
+              const t = itemTotals(item);
+              return (
+                <tr key={item.id}>
+                  <td style={{ padding: "3px 10px", fontFamily: FONT_MONO, color: COLORS.inkMuted, fontSize: 10, borderBottom: `1px solid ${COLORS.border}`, whiteSpace: "nowrap" }}>{row.code}</td>
+                  <td style={{ padding: "3px 10px", borderBottom: `1px solid ${COLORS.border}` }}>{item.desc || "(sem descrição)"}</td>
+                  <td style={{ padding: "3px 10px", fontFamily: FONT_MONO, textAlign: "right", borderBottom: `1px solid ${COLORS.border}` }}>{formatCurrency(t.totalItem)}</td>
+                  <td style={{ padding: "3px 6px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <OrcadoCell orc={item.orc1} onChange={(orc) => onUpdateItem(obraKey, row.catId, row.subId, item.id, { orc1: orc })} />
+                  </td>
+                  <td style={{ padding: "3px 6px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <OrcadoCell orc={item.orc2} onChange={(orc) => onUpdateItem(obraKey, row.catId, row.subId, item.id, { orc2: orc })} />
+                  </td>
+                  <td style={{ padding: "3px 6px", borderBottom: `1px solid ${COLORS.border}` }}>
+                    <OrcadoCell orc={item.orc3} onChange={(orc) => onUpdateItem(obraKey, row.catId, row.subId, item.id, { orc3: orc })} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function whatsappLink(phone) {
+  const digits = (phone || "").replace(/\D/g, "");
+  if (!digits) return null;
+  const withCountry = digits.length <= 11 ? "55" + digits : digits;
+  return `https://wa.me/${withCountry}`;
+}
+
+function Fornecedores({ fornecedores, onAdd, onUpdate, onRemove }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({ nome: "", contato: "", telefone: "", materialServico: "", indicadoPor: "", observacoes: "" });
+  function submit() { onAdd(form); setForm({ nome: "", contato: "", telefone: "", materialServico: "", indicadoPor: "", observacoes: "" }); setShowForm(false); }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ fontFamily: FONT_SERIF, fontSize: 18 }}>Fornecedores</div>
+        <button style={btnGhost} onClick={() => setShowForm((v) => !v)}>+ Novo fornecedor</button>
+      </div>
+      {showForm && (
+        <div style={{ ...panelStyle, padding: 16, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: "2 1 200px" }}><label style={labelStyle}>Nome</label><input style={{ ...inputStyle, width: "100%" }} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></div>
+          <div style={{ flex: "1 1 160px" }}><label style={labelStyle}>Contato</label><input style={{ ...inputStyle, width: "100%" }} value={form.contato} onChange={(e) => setForm({ ...form, contato: e.target.value })} /></div>
+          <div style={{ flex: "1 1 150px" }}><label style={labelStyle}>Telefone</label><input style={{ ...inputStyle, width: "100%" }} value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} placeholder="(27) 99999-9999" /></div>
+          <div style={{ flex: "1 1 180px" }}><label style={labelStyle}>Material/Serviço</label><input style={{ ...inputStyle, width: "100%" }} value={form.materialServico} onChange={(e) => setForm({ ...form, materialServico: e.target.value })} /></div>
+          <div style={{ flex: "1 1 160px" }}><label style={labelStyle}>Indicado por</label><input style={{ ...inputStyle, width: "100%" }} value={form.indicadoPor} onChange={(e) => setForm({ ...form, indicadoPor: e.target.value })} /></div>
+          <div style={{ flex: "2 1 220px" }}><label style={labelStyle}>Observações</label><input style={{ ...inputStyle, width: "100%" }} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} /></div>
+          <button style={btnPrimary} onClick={submit}>Salvar</button>
+          <button style={btnGhost} onClick={() => setShowForm(false)}>Cancelar</button>
+        </div>
+      )}
+      <div style={panelStyle}>
+        {fornecedores.length === 0 && <div style={{ padding: 20, fontSize: 13, color: COLORS.inkMuted }}>Nenhum fornecedor cadastrado ainda.</div>}
+        {fornecedores.map((f, i) => {
+          const editing = editingId === f.id;
+          const wa = whatsappLink(f.telefone);
+          return (
+            <div key={f.id} style={{ padding: "12px 16px", borderTop: i > 0 ? `1px solid ${COLORS.border}` : "none" }}>
+              {editing ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                  <input value={f.nome} onChange={(e) => onUpdate(f.id, { nome: e.target.value })} style={{ ...inputStyle, flex: "2 1 180px", fontWeight: 600 }} placeholder="Nome" />
+                  <input value={f.contato} onChange={(e) => onUpdate(f.id, { contato: e.target.value })} style={{ ...inputStyle, flex: "1 1 140px" }} placeholder="Contato" />
+                  <input value={f.telefone} onChange={(e) => onUpdate(f.id, { telefone: e.target.value })} style={{ ...inputStyle, flex: "1 1 140px" }} placeholder="Telefone" />
+                  <input value={f.materialServico} onChange={(e) => onUpdate(f.id, { materialServico: e.target.value })} style={{ ...inputStyle, flex: "1 1 160px" }} placeholder="Material/Serviço" />
+                  <input value={f.indicadoPor} onChange={(e) => onUpdate(f.id, { indicadoPor: e.target.value })} style={{ ...inputStyle, flex: "1 1 140px" }} placeholder="Indicado por" />
+                  <input value={f.observacoes} onChange={(e) => onUpdate(f.id, { observacoes: e.target.value })} style={{ ...inputStyle, flex: "2 1 180px", fontSize: 12, color: COLORS.inkMuted }} placeholder="Observações" />
+                  <button onClick={() => setEditingId(null)} style={btnPrimary}>Concluir</button>
+                  <button onClick={() => onRemove(f.id)} style={deleteBtnStyle}>×</button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "baseline" }}>
+                      <span style={{ fontWeight: 600, fontSize: 14 }}>{f.nome || "(sem nome)"}</span>
+                      {f.contato && <span style={{ fontSize: 12, color: COLORS.inkMuted }}>{f.contato}</span>}
+                      {f.telefone && (wa ? (
+                        <a href={wa} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: COLORS.moss, fontWeight: 600, textDecoration: "none" }}>{f.telefone} · WhatsApp</a>
+                      ) : (
+                        <span style={{ fontSize: 12, color: COLORS.inkMuted }}>{f.telefone}</span>
+                      ))}
+                      {f.materialServico && <span style={{ fontSize: 12, color: COLORS.inkMuted }}>{f.materialServico}</span>}
+                      {f.indicadoPor && <span style={{ fontSize: 12, color: COLORS.inkMuted }}>Indicado por: {f.indicadoPor}</span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => setEditingId(f.id)} style={btnGhost}>Editar</button>
+                      <button onClick={() => onRemove(f.id)} style={deleteBtnStyle}>×</button>
+                    </div>
+                  </div>
+                  {f.observacoes && <div style={{ fontSize: 12, color: COLORS.inkMuted, marginTop: 6 }}>{f.observacoes}</div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Revisoes ---------- */
+function Revisoes({ revisions, onAddRevision, onUpdateStatus, onRemove, onClearAll }) {
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [definicoes, setDefinicoes] = useState("");
+  const [priority, setPriority] = useState("Média");
+
+  function submit() { onAddRevision({ title, description, definicoes, priority }); setTitle(""); setDescription(""); setDefinicoes(""); setPriority("Média"); setShowForm(false); }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ fontFamily: FONT_SERIF, fontSize: 18 }}>Revisões de Projetos</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {revisions.length > 0 && <ConfirmButton onConfirm={onClearAll} style={{ ...btnGhost, fontSize: 12, color: COLORS.danger, borderColor: COLORS.danger }} confirmLabel="Confirmar exclusão de todas?">Excluir todas</ConfirmButton>}
+          <button style={btnGhost} onClick={() => setShowForm((v) => !v)}>+ Nova revisão</button>
+        </div>
+      </div>
+      <div style={{ fontSize: 13, color: COLORS.inkMuted, marginBottom: 16 }}>Reúnam aqui cada mudança que querem propor, para levar organizadas para a próxima conversa com o escritório de arquitetura.</div>
+      {showForm && (
+        <div style={{ ...panelStyle, padding: 16, marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div><label style={labelStyle}>Título da alteração</label><input style={{ ...inputStyle, width: "100%" }} value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+          <div><label style={labelStyle}>Descrição</label><textarea style={{ ...inputStyle, width: "100%", minHeight: 60, fontFamily: FONT_SANS }} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+          <div><label style={labelStyle}>Definições</label><textarea style={{ ...inputStyle, width: "100%", minHeight: 50, fontFamily: FONT_SANS }} value={definicoes} onChange={(e) => setDefinicoes(e.target.value)} placeholder="O que ficou definido/decidido sobre este ponto" /></div>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+            <div><label style={labelStyle}>Prioridade</label><select style={inputStyle} value={priority} onChange={(e) => setPriority(e.target.value)}>{PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}</select></div>
+            <button style={btnPrimary} onClick={submit}>Salvar</button>
+            <button style={btnGhost} onClick={() => setShowForm(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+      {revisions.length === 0 ? (
+        <div style={{ ...panelStyle, padding: 24, fontSize: 13, color: COLORS.inkMuted, textAlign: "center" }}>Nenhuma alteração registrada ainda.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {revisions.map((r) => (
+            <div key={r.id} style={{ ...panelStyle, padding: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>{r.title}</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: priorityBg(r.priority), color: "#fff" }}>{r.priority}</span>
+                  <button onClick={() => onRemove(r.id)} style={deleteBtnStyle}>×</button>
+                </div>
+              </div>
+              {r.description && <div style={{ fontSize: 13, color: COLORS.inkMuted, marginTop: 6 }}>{r.description}</div>}
+              {r.definicoes && <div style={{ fontSize: 13, marginTop: 6 }}><b>Definições:</b> {r.definicoes}</div>}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 8 }}>
+                <span style={{ fontSize: 11, color: COLORS.inkMuted, fontFamily: FONT_MONO }}>adicionada em {formatDate(r.dateAdded)}</span>
+                <select value={r.status} onChange={(e) => onUpdateStatus(r.id, e.target.value)} style={{ ...inputStyle, fontSize: 12 }}>{REVISION_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- App ---------- */
+function App() {
+  const [dbClient, setDbClient] = useState("pending");
+  const [assetsClient, setAssetsClient] = useState("pending");
+  const [userInfo, setUserInfo] = useState("pending");
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const d = window.claude ? await window.claude.use("db") : null;
+        if (alive) setDbClient(d);
+      } catch (e) {
+        if (alive) setDbClient(null);
+      }
+      try {
+        const a = window.claude ? await window.claude.use("assets") : null;
+        if (alive) setAssetsClient(a);
+      } catch (e) {
+        if (alive) setAssetsClient(null);
+      }
+      try {
+        const u = window.claude ? await window.claude.use("user") : null;
+        if (u) {
+          const me = await u.me();
+          if (alive) setUserInfo(me);
+        } else if (alive) {
+          setUserInfo(null);
+        }
+      } catch (e) {
+        if (alive) setUserInfo(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const [writeError, setWriteError] = useState(false);
+  function handleWriteError() { setWriteError(true); }
+
+  const [revisions, setRevisions, revisionsLoaded] = usePersistentState("obra_revisions", DEFAULT_REVISIONS, dbClient, "obra/revisions", handleWriteError);
+  const [tasks, setTasks, tasksLoaded] = usePersistentState("obra_tasks", [], dbClient, "obra/tasks", handleWriteError);
+  const [atelieObra, setAtelieObra, atelieLoaded] = usePersistentState("obra_atelie", DEFAULT_QUANTITATIVOS.atelie, dbClient, "obra/quant_atelie", handleWriteError);
+  const [garagemObra, setGaragemObra, garagemLoaded] = usePersistentState("obra_garagem", DEFAULT_QUANTITATIVOS.garagem, dbClient, "obra/quant_garagem", handleWriteError);
+  const [casaObra, setCasaObra, casaLoaded] = usePersistentState("obra_casa", DEFAULT_QUANTITATIVOS.casa, dbClient, "obra/quant_casa", handleWriteError);
+  const [lazerObra, setLazerObra, lazerLoaded] = usePersistentState("obra_lazer", DEFAULT_QUANTITATIVOS.lazer, dbClient, "obra/quant_lazer", handleWriteError);
+  const quantitativos = useMemo(() => ({ atelie: atelieObra, garagem: garagemObra, casa: casaObra, lazer: lazerObra }), [atelieObra, garagemObra, casaObra, lazerObra]);
+  const quantLoaded = atelieLoaded && garagemLoaded && casaLoaded && lazerLoaded;
+  function getObraSetter(obraKey) {
+    if (obraKey === "atelie") return setAtelieObra;
+    if (obraKey === "garagem") return setGaragemObra;
+    if (obraKey === "casa") return setCasaObra;
+    return setLazerObra;
+  }
+  const [fornecedores, setFornecedores, fornLoaded] = usePersistentState("obra_fornecedores", [], dbClient, "obra/fornecedores", handleWriteError);
+  const [unitOptions, setUnitOptions, unitsLoaded] = usePersistentState("obra_units", DEFAULT_UNIT_OPTIONS, dbClient, "obra/units", handleWriteError);
+  const [activeTab, setActiveTab] = useState("geral");
+  const [undoStack, setUndoStack] = useState([]);
+
+  function pushUndo() {
+    setUndoStack((prev) => {
+      const snapshot = { revisions, tasks, quantitativos, fornecedores, unitOptions };
+      const next = [...prev, snapshot];
+      return next.length > 20 ? next.slice(next.length - 20) : next;
+    });
+  }
+  function handleUndo() {
+    setUndoStack((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      setRevisions(last.revisions);
+      setTasks(last.tasks);
+      setAtelieObra(last.quantitativos.atelie);
+      setGaragemObra(last.quantitativos.garagem);
+      setCasaObra(last.quantitativos.casa);
+      setLazerObra(last.quantitativos.lazer);
+      setFornecedores(last.fornecedores);
+      setUnitOptions(last.unitOptions);
+      return prev.slice(0, -1);
+    });
+  }
+
+  const loading = dbClient === "pending" || !revisionsLoaded || !tasksLoaded || !quantLoaded || !fornLoaded || !unitsLoaded;
+
+  const totalEstimado = useMemo(() => OBRA_KEYS.reduce((s, k) => s + obraGrandTotal(quantitativos[k]).estimado, 0), [quantitativos]);
+  const totalRealizado = useMemo(() => OBRA_KEYS.reduce((s, k) => s + obraGrandTotal(quantitativos[k]).realizado, 0), [quantitativos]);
+  const chartData = useMemo(() => OBRA_KEYS.map((k) => {
+    const t = obraGrandTotal(quantitativos[k]);
+    return { name: quantitativos[k].label, estimado: t.estimado, realizado: t.realizado };
+  }), [quantitativos]);
+
+  const pendingRevisions = revisions.filter((r) => r.status !== "Aprovada" && r.status !== "Rejeitada");
+  const tasksAguardando = tasks.filter((t) => t.status === "Aguardando programação").length;
+  const tasksAtrasadas = tasks.filter((t) => isTaskOverdue(t)).length;
+
+  function addRevision({ title, description, definicoes, priority }) {
+    if (!title || !title.trim()) return;
+    pushUndo();
+    setRevisions((prev) => [...prev, { id: uid(), title: title.trim(), description: (description || "").trim(), definicoes: (definicoes || "").trim(), priority: priority || "Média", status: "A discutir", dateAdded: todayStr() }]);
+  }
+  function updateRevisionStatus(id, status) { pushUndo(); setRevisions((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r))); }
+  function removeRevision(id) { pushUndo(); setRevisions((prev) => prev.filter((r) => r.id !== id)); }
+  function clearAllRevisions() { pushUndo(); setRevisions([]); }
+
+  function addTask({ title, urgente, importante, dueDate, responsavelTipo, responsavelOutro, observacoes }) {
+    if (!title || !title.trim()) return;
+    pushUndo();
+    const u = urgente === undefined ? null : urgente;
+    const im = importante === undefined ? null : importante;
+    const cls = classifyTask(u, im);
+    const readyForAFazer = cls === "fazer-agora" || (cls === "planejar" && dueDate);
+    setTasks((prev) => [...prev, {
+      id: uid(), title: title.trim(), status: readyForAFazer ? "A fazer" : "Aguardando programação",
+      urgente: u, importante: im, dueDate: dueDate || "",
+      responsavelTipo: responsavelTipo || "", responsavelOutro: responsavelOutro || "", observacoes: observacoes || "",
+      dateAdded: todayStr(), dateCompleted: "",
+    }]);
+  }
+  function updateTask(id, patch) {
+    pushUndo();
+    setTasks((prev) => prev.map((t) => {
+      if (t.id !== id) return t;
+      const merged = { ...t, ...patch };
+      const touchesClassification = "urgente" in patch || "importante" in patch;
+      if (touchesClassification && merged.status !== "Em andamento") {
+        const cls = classifyTask(merged.urgente, merged.importante);
+        const readyForAFazer = cls === "fazer-agora" || (cls === "planejar" && merged.dueDate);
+        merged.status = readyForAFazer ? "A fazer" : "Aguardando programação";
+      }
+      return merged;
+    }));
+  }
+  function recomputeTaskStatus(id) {
+    setTasks((prev) => prev.map((t) => {
+      if (t.id !== id || t.status === "Em andamento") return t;
+      const cls = classifyTask(t.urgente, t.importante);
+      const readyForAFazer = cls === "fazer-agora" || (cls === "planejar" && t.dueDate);
+      const nextStatus = readyForAFazer ? "A fazer" : "Aguardando programação";
+      return nextStatus === t.status ? t : { ...t, status: nextStatus };
+    }));
+  }
+  function moveTask(id, status) { pushUndo(); setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t))); }
+  function completeTask(id) { pushUndo(); setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: "Concluído", dateCompleted: todayStr() } : t))); }
+  function reopenTask(id) { pushUndo(); setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: "Em andamento", dateCompleted: "" } : t))); }
+  function removeTask(id) { pushUndo(); setTasks((prev) => prev.filter((t) => t.id !== id)); }
+
+  function updateQuantItem(obraKey, catId, subId, itemId, patch) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({
+      ...obra,
+      categorias: obra.categorias.map((c) => (c.id !== catId ? c : {
+        ...c,
+        subcategorias: c.subcategorias.map((s) => (s.id !== subId ? s : { ...s, itens: s.itens.map((it) => (it.id === itemId ? { ...it, ...patch } : it)) })),
+      })),
+    }));
+  }
+  function addQuantItemQuick(obraKey, catId, subId) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({
+      ...obra,
+      categorias: obra.categorias.map((c) => (c.id !== catId ? c : {
+        ...c,
+        subcategorias: c.subcategorias.map((s) => (s.id !== subId ? s : {
+          ...s,
+          itens: [...s.itens, { id: uid(), desc: "", espec: "", unidade: "", quantidade: "", obs: "", precoUnitMaterial: "", precoUnitMO: "", realizadoMaterial: "", realizadoMO: "", orc1: mkOrc(), orc2: mkOrc(), orc3: mkOrc() }],
+        })),
+      })),
+    }));
+  }
+  function addImprevisto(obraKey, catId, subId, { desc, realizadoMaterial, realizadoMO }) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({
+      ...obra,
+      categorias: obra.categorias.map((c) => (c.id !== catId ? c : {
+        ...c,
+        subcategorias: c.subcategorias.map((s) => (s.id !== subId ? s : {
+          ...s,
+          itens: [...s.itens, {
+            id: uid(), desc: (desc || "").trim(), espec: "", unidade: "", quantidade: "", obs: "",
+            precoUnitMaterial: "", precoUnitMO: "",
+            realizadoMaterial: realizadoMaterial || "", realizadoMO: realizadoMO || "",
+            orc1: mkOrc(), orc2: mkOrc(), orc3: mkOrc(), imprevisto: true,
+          }],
+        })),
+      })),
+    }));
+  }
+  function removeQuantItem(obraKey, catId, subId, itemId) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({
+      ...obra,
+      categorias: obra.categorias.map((c) => (c.id !== catId ? c : {
+        ...c,
+        subcategorias: c.subcategorias.map((s) => (s.id !== subId ? s : { ...s, itens: s.itens.filter((it) => it.id !== itemId) })),
+      })),
+    }));
+  }
+  function reorderItem(obraKey, catId, subId, fromItemId, toItemId) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({
+      ...obra,
+      categorias: obra.categorias.map((c) => (c.id !== catId ? c : {
+        ...c,
+        subcategorias: c.subcategorias.map((s) => {
+          if (s.id !== subId) return s;
+          const itens = [...s.itens];
+          const fromIdx = itens.findIndex((it) => it.id === fromItemId);
+          const toIdx = itens.findIndex((it) => it.id === toItemId);
+          if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return s;
+          const [moved] = itens.splice(fromIdx, 1);
+          itens.splice(toIdx, 0, moved);
+          return { ...s, itens };
+        }),
+      })),
+    }));
+  }
+  function updateReserva(obraKey, value) { pushUndo(); getObraSetter(obraKey)((obra) => ({ ...obra, reservaPct: value })); }
+  function updateMaoDeObraGeral(obraKey, value) { pushUndo(); getObraSetter(obraKey)((obra) => ({ ...obra, maoDeObraGeral: value })); }
+  function addCategoria(obraKey, nome, id) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({ ...obra, categorias: [...obra.categorias, { id: id || uid(), nome: nome.trim(), subcategorias: [] }] }));
+  }
+  function addSubcategoria(obraKey, catId, nome, id) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({ ...obra, categorias: obra.categorias.map((c) => (c.id !== catId ? c : { ...c, subcategorias: [...c.subcategorias, { id: id || uid(), nome: nome.trim(), itens: [] }] })) }));
+  }
+  function removeCategoria(obraKey, catId) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({ ...obra, categorias: obra.categorias.filter((c) => c.id !== catId) }));
+  }
+  function removeSubcategoria(obraKey, catId, subId) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({ ...obra, categorias: obra.categorias.map((c) => (c.id !== catId ? c : { ...c, subcategorias: c.subcategorias.filter((s) => s.id !== subId) })) }));
+  }
+  function reorderCategoriaToPosition(obraKey, catId, newPosition) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => {
+      const categorias = [...obra.categorias];
+      const fromIdx = categorias.findIndex((c) => c.id === catId);
+      if (fromIdx === -1) return obra;
+      const targetIdx = Math.max(0, Math.min(categorias.length - 1, newPosition - 1));
+      const [moved] = categorias.splice(fromIdx, 1);
+      categorias.splice(targetIdx, 0, moved);
+      return { ...obra, categorias };
+    });
+  }
+  function updateCategoriaNome(obraKey, catId, nome) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({ ...obra, categorias: obra.categorias.map((c) => (c.id !== catId ? c : { ...c, nome })) }));
+  }
+  function updateSubcategoriaNome(obraKey, catId, subId, nome) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({ ...obra, categorias: obra.categorias.map((c) => (c.id !== catId ? c : { ...c, subcategorias: c.subcategorias.map((s) => (s.id !== subId ? s : { ...s, nome })) })) }));
+  }
+  function updateCategoriaRealizado(obraKey, catId, field, value) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({ ...obra, categorias: obra.categorias.map((c) => (c.id !== catId ? c : { ...c, [field]: value })) }));
+  }
+  function updateSubcategoriaRealizado(obraKey, catId, subId, field, value) {
+    pushUndo();
+    getObraSetter(obraKey)((obra) => ({ ...obra, categorias: obra.categorias.map((c) => (c.id !== catId ? c : { ...c, subcategorias: c.subcategorias.map((s) => (s.id !== subId ? s : { ...s, [field]: value })) })) }));
+  }
+  function addUnitOption(name) {
+    const clean = name.trim();
+    if (!clean) return;
+    pushUndo();
+    setUnitOptions((prev) => (prev.includes(clean) ? prev : [...prev, clean]));
+  }
+  function removeUnitOption(name) {
+    pushUndo();
+    setUnitOptions((prev) => prev.filter((u) => u !== name));
+  }
+
+  function addFornecedor(form) { if (!form.nome || !form.nome.trim()) return; pushUndo(); setFornecedores((prev) => [...prev, { id: uid(), ...form }]); }
+  function updateFornecedor(id, patch) { pushUndo(); setFornecedores((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))); }
+  function removeFornecedor(id) { pushUndo(); setFornecedores((prev) => prev.filter((f) => f.id !== id)); }
+
+  if (loading) {
+    return <div style={{ fontFamily: FONT_SANS, padding: 40, textAlign: "center", color: COLORS.inkMuted, background: COLORS.paper, minHeight: "100vh" }}>Carregando dados da obra…</div>;
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", fontFamily: FONT_SANS, background: COLORS.paper, color: COLORS.ink }}>
+      {dbClient === null && (
+        <div style={{ background: COLORS.danger, color: "#fff", padding: "12px 20px", fontSize: 13, fontWeight: 600, textAlign: "center" }}>
+          ⚠ Este acesso não conseguiu usar o armazenamento compartilhado — o que for feito aqui fica salvo só neste navegador e não vai aparecer para a outra pessoa.
+          {userInfo && userInfo !== "pending" && !userInfo.id ? " Isso costuma acontecer quando esta conta não pertence à mesma organização Claude de quem publicou o aplicativo." : ""}
+        </div>
+      )}
+      {writeError && (
+        <div style={{ background: COLORS.danger, color: "#fff", padding: "12px 20px", fontSize: 13, fontWeight: 600, textAlign: "center", display: "flex", justifyContent: "center", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span>⚠ Uma alteração não pôde ser salva no armazenamento compartilhado — provavelmente esta sessão só tem permissão de visualização ("Can view") neste artifact, não de edição. A mudança pode desaparecer se a página for recarregada.</span>
+          <button onClick={() => setWriteError(false)} style={{ background: "rgba(255,255,255,0.25)", border: "none", borderRadius: 4, color: "#fff", padding: "4px 10px", cursor: "pointer", fontSize: 12, flexShrink: 0 }}>Ok</button>
+        </div>
+      )}
+      <div style={{ display: "flex", minHeight: dbClient === null ? "calc(100vh - 44px)" : "100vh" }}>
+      <div className="obra-sidebar" style={{ width: 220, flexShrink: 0, background: COLORS.primary, display: "flex", flexDirection: "column", padding: "20px 0" }}>
+        <div style={{ padding: "0 18px 18px", borderBottom: "1px solid rgba(255,255,255,0.25)", marginBottom: 12 }}>
+          <div className="obra-nav-label" style={{ fontFamily: FONT_SERIF, fontSize: 16, fontWeight: 700, color: "#fff", lineHeight: 1.25 }}>GERENCIAMENTO OBRA CASA E ATELIÊ</div>
+        </div>
+        <nav style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 8px" }}>
+          {TABS.map((t) => {
+            const active = activeTab === t.id;
+            return (
+              <button key={t.id} onClick={() => setActiveTab(t.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 10px", borderRadius: 6, border: "none", background: active ? "#F7F7EF" : "transparent", color: active ? COLORS.primaryDark : "#fff", fontFamily: FONT_SANS, fontSize: 13, fontWeight: active ? 700 : 500, cursor: "pointer", textAlign: "left" }}>
+                <span style={{ width: 16, textAlign: "center" }}>{t.icon}</span><span className="obra-nav-label">{t.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <div style={{ padding: "0 8px", marginTop: "auto" }}>
+          <button onClick={handleUndo} disabled={undoStack.length === 0} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: undoStack.length === 0 ? "transparent" : "rgba(255,255,255,0.15)", color: "#fff", fontFamily: FONT_SANS, fontSize: 13, fontWeight: 600, cursor: undoStack.length === 0 ? "default" : "pointer", opacity: undoStack.length === 0 ? 0.4 : 1 }}>
+            <span>↺</span><span className="obra-nav-label">Desfazer{undoStack.length > 0 ? ` (${undoStack.length})` : ""}</span>
+          </button>
+        </div>
+        <div className="obra-nav-label" style={{ padding: "12px 18px 0", fontSize: 10, color: "rgba(255,255,255,0.75)" }}>
+          {dbClient ? "dados compartilhados salvos automaticamente" : "salvo neste navegador"}
+        </div>
+        <div className="obra-nav-label" style={{ padding: "4px 18px 0", fontSize: 10, color: "rgba(255,255,255,0.6)" }}>
+          {userInfo && userInfo !== "pending" ? (userInfo.id ? `Conectado como: ${userInfo.name || "(sem nome)"}` : "Sessão sem identidade reconhecida") : ""}
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        <div style={{ maxWidth: 1150, margin: "0 auto", padding: 24 }}>
+          {activeTab === "geral" && <VisaoGeral totalEstimado={totalEstimado} totalRealizado={totalRealizado} chartData={chartData} pendingRevisions={pendingRevisions} tasksAguardando={tasksAguardando} tasksAtrasadas={tasksAtrasadas} onGoToTab={setActiveTab} />}
+          {activeTab === "tarefas" && <Tarefas tasks={tasks} onAddTask={addTask} onUpdateTask={updateTask} onRemoveTask={removeTask} onMoveTask={moveTask} onCompleteTask={completeTask} onReopenTask={reopenTask} onRecomputeStatus={recomputeTaskStatus} />}
+          {activeTab === "estimativas" && (
+            <EstimativasOrcamentos
+              data={quantitativos} unitOptions={unitOptions}
+              onUpdateItem={updateQuantItem} onAddItemQuick={addQuantItemQuick} onRemoveItem={removeQuantItem} onReorderItem={reorderItem} onReorderCategoriaToPosition={reorderCategoriaToPosition}
+              onUpdateReserva={updateReserva} onUpdateMaoDeObraGeral={updateMaoDeObraGeral} onAddCategoria={addCategoria} onAddSubcategoria={addSubcategoria}
+              onRemoveCategoria={removeCategoria} onRemoveSubcategoria={removeSubcategoria}
+              onUpdateCategoriaNome={updateCategoriaNome} onUpdateSubcategoriaNome={updateSubcategoriaNome}
+              onAddUnitOption={addUnitOption} onRemoveUnitOption={removeUnitOption}
+            />
+          )}
+          {activeTab === "orcamento" && <Orcamento data={quantitativos} onUpdateItem={updateQuantItem} />}
+          {activeTab === "fornecedores" && <Fornecedores fornecedores={fornecedores} onAdd={addFornecedor} onUpdate={updateFornecedor} onRemove={removeFornecedor} />}
+          {activeTab === "financeiro" && <Financeiro data={quantitativos} onUpdateItem={updateQuantItem} onUpdateCategoriaRealizado={updateCategoriaRealizado} onUpdateSubcategoriaRealizado={updateSubcategoriaRealizado} onAddImprevisto={addImprevisto} assetsClient={assetsClient} />}
+          {activeTab === "revisoes" && <Revisoes revisions={revisions} onAddRevision={addRevision} onUpdateStatus={updateRevisionStatus} onRemove={removeRevision} onClearAll={clearAllRevisions} />}
+          <div style={{ marginTop: 24, fontSize: 11, color: COLORS.inkMuted, textAlign: "center" }}>
+            {dbClient ? "Os dados ficam salvos e visíveis para quem tiver acesso a este aplicativo dentro da sua organização Claude." : "Os dados ficam salvos apenas neste navegador (não foi possível habilitar o armazenamento compartilhado nesta visualização)."}
+          </div>
+        </div>
+      </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
